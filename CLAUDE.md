@@ -11,11 +11,14 @@ WebControl is a headless browser automation service for LLM agents. It navigates
 ```bash
 # Setup (first time)
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install ".[dev]"
 playwright install chromium
 
 # Activate venv (subsequent times)
 source .venv/bin/activate
+
+# Reinstall after code changes (required since editable installs are broken on Python 3.14)
+pip install ".[dev]"
 
 # Run server (REST at /api/v1, MCP at /mcp, health at /health)
 webcontrol serve

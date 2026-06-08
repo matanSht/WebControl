@@ -37,7 +37,7 @@ The LLM reads a compact structured representation of the page (interactive eleme
 ```bash
 # Install
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install ".[dev]"
 playwright install chromium
 
 # Run
