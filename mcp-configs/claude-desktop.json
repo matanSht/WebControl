@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "webcontrol": {
+      "command": "webcontrol",
+      "args": ["mcp-stdio"],
+      "description": "Headless browser automation — navigate, read, click, and fill web pages",
+      "env": {
+        "WC_HEADLESS": "true"
+      }
+    }
+  }
+}
