@@ -28,3 +28,14 @@ class NavigationError(WebControlError):
 
 class ActionError(WebControlError):
     pass
+
+
+class SearchError(WebControlError):
+    pass
+
+
+class SearchNotConfiguredError(WebControlError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Search tier is not configured. Set WC_SEARCH_TIER_ENABLED=true and WC_SEARCH_API_KEY."
+        )

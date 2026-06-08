@@ -8,6 +8,7 @@ from webcontrol.api.auth import ApiKeyMiddleware
 from webcontrol.api.middleware import RequestLoggingMiddleware
 from webcontrol.api.routes_actions import router as actions_router
 from webcontrol.api.routes_observability import router as observability_router
+from webcontrol.api.routes_search import router as search_router
 from webcontrol.api.routes_sessions import router as sessions_router
 from webcontrol.config import Settings
 from webcontrol.core.errors import (
@@ -15,6 +16,8 @@ from webcontrol.core.errors import (
     ElementNotFoundError,
     MaxSessionsError,
     NavigationError,
+    SearchError,
+    SearchNotConfiguredError,
     SessionNotFoundError,
 )
 from webcontrol.core.service import WebControlService
@@ -44,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sessions_router, prefix="/api/v1")
     app.include_router(actions_router, prefix="/api/v1")
     app.include_router(observability_router, prefix="/api/v1")
+    app.include_router(search_router, prefix="/api/v1")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -68,5 +72,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(ActionError)
     async def action_error_handler(request: Request, exc: ActionError):
         return JSONResponse(status_code=422, content={"error": str(exc)})
+
+    @app.exception_handler(SearchNotConfiguredError)
+    async def search_not_configured_handler(request: Request, exc: SearchNotConfiguredError):
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+
+    @app.exception_handler(SearchError)
+    async def search_error_handler(request: Request, exc: SearchError):
+        return JSONResponse(status_code=502, content={"error": str(exc)})
 
     return app

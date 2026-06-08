@@ -9,6 +9,7 @@ from webcontrol.models.actions import (
     SelectRequest,
     SubmitRequest,
 )
+from webcontrol.models.search import SearchRequest
 from webcontrol.models.session import SessionCreate
 
 
@@ -26,14 +27,16 @@ def create_mcp_server(get_service: callable) -> FastMCP:
     ) -> dict:
         """Create a new browser session with isolated cookies and storage. Set enable_tracing=true to record a Playwright trace for debugging."""
         service: WebControlService = get_service()
-        result = await service.create_session(SessionCreate(
-            name=name,
-            ttl_seconds=ttl_seconds,
-            viewport_width=viewport_width,
-            viewport_height=viewport_height,
-            user_agent=user_agent,
-            enable_tracing=enable_tracing,
-        ))
+        result = await service.create_session(
+            SessionCreate(
+                name=name,
+                ttl_seconds=ttl_seconds,
+                viewport_width=viewport_width,
+                viewport_height=viewport_height,
+                user_agent=user_agent,
+                enable_tracing=enable_tracing,
+            )
+        )
         return result.model_dump(mode="json")
 
     @mcp.tool()
@@ -76,7 +79,9 @@ def create_mcp_server(get_service: callable) -> FastMCP:
     ) -> dict:
         """Click an element by its ref ID (from get_page_content). Returns updated page content."""
         service: WebControlService = get_service()
-        result = await service.click(session_id, ClickRequest(ref=ref, button=button, click_count=click_count))
+        result = await service.click(
+            session_id, ClickRequest(ref=ref, button=button, click_count=click_count)
+        )
         return result.model_dump(mode="json")
 
     @mcp.tool()
@@ -112,6 +117,27 @@ def create_mcp_server(get_service: callable) -> FastMCP:
         """Execute JavaScript on the current page. Returns updated page content."""
         service: WebControlService = get_service()
         result = await service.execute_js(session_id, ExecuteJsRequest(script=script))
+        return result.model_dump(mode="json")
+
+    @mcp.tool()
+    async def search(
+        query: str,
+        max_results: int | None = None,
+        fetch_contents: bool | None = None,
+    ) -> dict:
+        """Search the web via a pre-crawled search index (Tier S).
+
+        Reads results from a search provider's cache WITHOUT contacting the target
+        site directly, so it bypasses anti-bot walls (e.g. Amazon's "Continue
+        Shopping" block) that defeat a headless browser. Use this for read-only
+        info gathering — prices, article text, "what's on this page" — when
+        navigate() gets blocked or interaction isn't needed. No session required.
+        Returns titles, URLs, snippets, and (when available) full extracted text.
+        """
+        service: WebControlService = get_service()
+        result = await service.search(
+            SearchRequest(query=query, max_results=max_results, fetch_contents=fetch_contents)
+        )
         return result.model_dump(mode="json")
 
     @mcp.tool()

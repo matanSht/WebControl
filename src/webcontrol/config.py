@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     proxy_username: str = ""
     proxy_password: str = ""
 
+    # Search tier (Tier S) — reads results from a search engine's pre-crawled
+    # index instead of contacting the target origin directly. Sidesteps anti-bot
+    # walls for read-only info gathering (the "web search" path).
+    search_tier_enabled: bool = False
+    search_provider: Literal["exa", "brave"] = "exa"
+    search_api_key: str = ""
+    search_max_results: int = 5
+    search_fetch_contents: bool = True
+    search_timeout_ms: int = 15000
+
     # Retry settings
     navigation_retries: int = 2
     action_retries: int = 1

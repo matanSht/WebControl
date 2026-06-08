@@ -1,7 +1,11 @@
+from datetime import datetime, timezone
+
 from webcontrol.config import Settings
 from webcontrol.core.action_executor import ActionExecutor
 from webcontrol.core.browser_manager import BrowserManager
+from webcontrol.core.errors import SearchNotConfiguredError
 from webcontrol.core.page_parser import PageParser
+from webcontrol.core.search_tier import SearchTier
 from webcontrol.core.session_manager import SessionManager
 from webcontrol.models.actions import (
     ClickRequest,
@@ -13,6 +17,7 @@ from webcontrol.models.actions import (
 )
 from webcontrol.models.page import PageContent
 from webcontrol.models.responses import ActionResult, ScreenshotResult
+from webcontrol.models.search import SearchRequest, SearchResult
 from webcontrol.models.session import SessionCreate, SessionInfo
 
 
@@ -23,6 +28,10 @@ class WebControlService:
         self._session_manager = SessionManager(self._browser_manager, settings)
         self._parser = PageParser()
         self._executor = ActionExecutor(self._parser, settings)
+        # Tier S is built eagerly so a missing key fails fast at startup.
+        self._search_tier: SearchTier | None = (
+            SearchTier(settings) if settings.search_tier_enabled else None
+        )
 
     async def startup(self) -> None:
         await self._browser_manager.startup()
@@ -32,9 +41,29 @@ class WebControlService:
         await self._session_manager.stop_cleanup_loop()
         await self._session_manager.close_all()
         await self._browser_manager.shutdown()
+        if self._search_tier is not None:
+            await self._search_tier.aclose()
+
+    async def search(self, req: SearchRequest) -> SearchResult:
+        if self._search_tier is None:
+            raise SearchNotConfiguredError()
+        items = await self._search_tier.search(
+            req.query,
+            max_results=req.max_results,
+            fetch_contents=req.fetch_contents,
+        )
+        return SearchResult(
+            success=True,
+            query=req.query,
+            provider=self._search_tier.provider_name,
+            results=items,
+            timestamp=datetime.now(timezone.utc),
+        )
 
     async def create_session(self, opts: SessionCreate) -> SessionInfo:
-        session = await self._session_manager.create_session(opts, enable_tracing=opts.enable_tracing)
+        session = await self._session_manager.create_session(
+            opts, enable_tracing=opts.enable_tracing
+        )
         return SessionInfo(
             id=session.id,
             name=session.name,
