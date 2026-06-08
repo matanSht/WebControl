@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WebControl is a headless browser automation service for LLM agents. It navigates pages, reads structured content, and interacts with elements (click, fill, select, submit) — exposed via both a REST API and MCP (Model Context Protocol) server on a single port.
 
+## Git Policy
+
+Never run `git commit` or `git push` without explicit user approval. Show what will be committed or pushed and wait for confirmation before executing.
+
 ## Commands
 
 ```bash
