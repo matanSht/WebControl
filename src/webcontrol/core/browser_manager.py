@@ -3,6 +3,7 @@ import asyncio
 from playwright.async_api import Browser, Playwright, async_playwright
 
 from webcontrol.config import Settings
+from webcontrol.core.stealth import stealth_launch_args
 
 
 class BrowserManager:
@@ -24,7 +25,10 @@ class BrowserManager:
                 return
             self._playwright = await async_playwright().start()
             launcher = getattr(self._playwright, self._settings.browser_type)
-            self._browser = await launcher.launch(headless=self._settings.headless)
+            self._browser = await launcher.launch(
+                headless=self._settings.headless,
+                args=stealth_launch_args(self._settings),
+            )
 
     async def shutdown(self) -> None:
         async with self._lock:

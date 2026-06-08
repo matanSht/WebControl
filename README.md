@@ -106,6 +106,18 @@ For Cursor, add to `.cursor/mcp.json` in your project. See `mcp-configs/` for mo
 
 Once configured, the LLM gets these tools: `create_session`, `navigate`, `get_page_content`, `click`, `fill`, `select`, `submit`, `screenshot`, `execute_js`, `close_session`.
 
+## Anti-Bot Resilience
+
+Sites with anti-bot walls (Amazon, Cloudflare) often serve a block page with
+HTTP 200, so a naive browser thinks navigation succeeded. WebControl detects
+blocks and **auto-escalates** through robustness tiers — stealth fingerprint →
+human-like behavior → proxy (if configured) — and reports honestly which tier
+worked (`blocked`, `tier_used`, `block_reason` on every navigate response). If
+all browser tiers are blocked it raises a `409 Blocked` error recommending the
+`search` tool; pass `fallback_to_search: true` to instead return read-only
+results from a pre-crawled search index (Tier S). See
+[docs/robustness.md](docs/robustness.md).
+
 ## Configuration
 
 All settings via environment variables prefixed `WC_`:
@@ -123,9 +135,18 @@ All settings via environment variables prefixed `WC_`:
 | `WC_NAVIGATION_TIMEOUT_MS` | `30000` | Navigation timeout |
 | `WC_ACTION_TIMEOUT_MS` | `10000` | Action timeout (click, fill, etc.) |
 | `WC_API_KEY` | _(empty)_ | API key for REST auth; empty = no auth |
-| `WC_PROXY_SERVER` | _(empty)_ | HTTP proxy (e.g., `http://proxy:8080`) |
+| `WC_PROXY_SERVER` | _(empty)_ | HTTP proxy (e.g., `http://proxy:8080`); also enables the proxy escalation tier |
 | `WC_PROXY_USERNAME` | _(empty)_ | Proxy auth username |
 | `WC_PROXY_PASSWORD` | _(empty)_ | Proxy auth password |
+| `WC_STEALTH_ENABLED` | `true` | Mask headless browser fingerprint (anti-bot tier 0) |
+| `WC_USER_AGENT` | _(empty)_ | Override the stealth default user-agent |
+| `WC_LOCALE` | `en-US` | Browser locale + `Accept-Language` header |
+| `WC_TIMEZONE_ID` | _(empty)_ | Override browser timezone |
+| `WC_NAVIGATION_ESCALATION` | `true` | Auto-escalate through robustness tiers when a site blocks |
+| `WC_BEHAVIORAL_JITTER_MS` | `800` | Max random delay for the behavioral escalation tier |
+| `WC_SEARCH_TIER_ENABLED` | `false` | Enable the search-index fallback (Tier S) |
+| `WC_SEARCH_PROVIDER` | `exa` | Search provider for Tier S (`exa`/`brave`) |
+| `WC_SEARCH_API_KEY` | _(empty)_ | API key for the search provider |
 | `WC_NAVIGATION_RETRIES` | `2` | Retry attempts for navigation |
 | `WC_ACTION_RETRIES` | `1` | Retry attempts for actions |
 | `WC_RETRY_DELAY_MS` | `500` | Delay between retries |

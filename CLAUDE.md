@@ -53,9 +53,11 @@ LLM Agent → REST (/api/v1) or MCP tools (/mcp)
               ↓
     WebControlService  ← facade, single entry point (core/service.py)
               ↓
+    NavigationEscalator← navigate() tier ladder + block detection (core/navigation_escalation.py)
     SessionManager     ← BrowserSession per caller (core/session_manager.py)
     PageParser         ← DOM → PageContent with refs e1..eN (core/page_parser.py)
     ActionExecutor     ← ref → Locator, execute with retry (core/action_executor.py)
+    SearchTier         ← Tier S: pre-crawled search index, no origin (core/search_tier.py)
               ↓
     BrowserManager     ← single Playwright Browser instance (core/browser_manager.py)
 ```
@@ -67,6 +69,8 @@ LLM Agent → REST (/api/v1) or MCP tools (/mcp)
 **Session isolation.** One Playwright `BrowserContext` per session (separate cookies, storage, cache). Per-session `asyncio.Lock` serializes actions within a session; different sessions run concurrently. Background cleanup evicts sessions past TTL.
 
 **Retry.** `core/retry.py` wraps Playwright calls with configurable retries on transient errors.
+
+**Navigation robustness.** Anti-bot walls (Amazon, Cloudflare) often serve a block page with HTTP 200, so `goto()` succeeds while returning junk. `navigate()` goes through `NavigationEscalator` (`core/navigation_escalation.py`), which runs `detect_block()` (`core/block_detection.py`) after each attempt and climbs a tier ladder: **direct** (stealth, `core/stealth.py`) → **behavioral** (jitter + networkidle + scroll/mouse) → **proxy** (rebuilds the context through `WC_PROXY_SERVER`; skipped if unset) → terminal. On terminal block it raises `BlockedError` (HTTP 409), or — when `NavigateRequest.fallback_to_search=true` — returns Tier S search results in `ActionResult.search_fallback`. Every `ActionResult` carries `blocked`, `tier_used`, `block_reason` so a block page is never reported as success. Full detail: [docs/robustness.md](docs/robustness.md).
 
 ## Adding a New Action
 
@@ -96,6 +100,9 @@ Domain exceptions in `core/errors.py` form a hierarchy under `WebControlError`. 
 | `MaxSessionsError` | 409 |
 | `NavigationError` | 502 |
 | `ActionError` | 422 |
+| `BlockedError` | 409 |
+| `SearchNotConfiguredError` | 503 |
+| `SearchError` | 502 |
 
 MCP tools catch the same exceptions and return them as error content in the tool response.
 
@@ -116,9 +123,18 @@ All settings via env vars prefixed `WC_` (defined in `config.py`):
 | `WC_NAVIGATION_TIMEOUT_MS` | 30000 | Navigation timeout |
 | `WC_ACTION_TIMEOUT_MS` | 10000 | Action timeout |
 | `WC_API_KEY` | _(empty)_ | API key for REST auth; empty = open |
-| `WC_PROXY_SERVER` | _(empty)_ | HTTP proxy for browser contexts |
+| `WC_PROXY_SERVER` | _(empty)_ | HTTP proxy for browser contexts; also enables the proxy escalation tier |
 | `WC_PROXY_USERNAME` | _(empty)_ | Proxy auth username |
 | `WC_PROXY_PASSWORD` | _(empty)_ | Proxy auth password |
+| `WC_STEALTH_ENABLED` | true | Mask headless tells (navigator.webdriver, UA, locale) — tier 0 |
+| `WC_USER_AGENT` | _(empty)_ | Override the stealth default user-agent |
+| `WC_LOCALE` | en-US | Browser context locale + `Accept-Language` |
+| `WC_TIMEZONE_ID` | _(empty)_ | Override browser timezone |
+| `WC_NAVIGATION_ESCALATION` | true | Enable the navigate() tier escalation ladder |
+| `WC_BEHAVIORAL_JITTER_MS` | 800 | Max random pre-retry delay for the behavioral tier |
+| `WC_SEARCH_TIER_ENABLED` | false | Enable Tier S search index (needs `WC_SEARCH_API_KEY`) |
+| `WC_SEARCH_PROVIDER` | exa | Search provider (exa/brave) |
+| `WC_SEARCH_API_KEY` | _(empty)_ | API key for the search provider |
 | `WC_NAVIGATION_RETRIES` | 2 | Navigation retry count |
 | `WC_ACTION_RETRIES` | 1 | Action retry count |
 | `WC_RETRY_DELAY_MS` | 500 | Delay between retries |
@@ -145,6 +161,7 @@ Response headers on every request: `x-request-id`, `x-response-time-ms`.
 | [docs/api-reference.md](docs/api-reference.md) | REST endpoints, request/response schemas, PageContent JSON schema |
 | [docs/mcp-tools.md](docs/mcp-tools.md) | MCP tool parameters, return types, usage patterns |
 | [docs/observability.md](docs/observability.md) | Logging, correlation IDs, timing, activity logs, tracing |
+| [docs/robustness.md](docs/robustness.md) | Anti-bot resilience: stealth, block detection, escalation tiers, search fallback |
 | [docs/deployment.md](docs/deployment.md) | Docker, local process, launchd, resource planning, security |
 | [docs/integration-guide.md](docs/integration-guide.md) | Connecting an LLM agent, Python/TS examples, multi-step flows |
 | [mcp-configs/](mcp-configs/README.md) | MCP JSON configs for Claude Desktop, Cursor, Claude Code |

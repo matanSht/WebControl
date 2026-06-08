@@ -4,6 +4,7 @@ from webcontrol.config import Settings
 from webcontrol.core.action_executor import ActionExecutor
 from webcontrol.core.browser_manager import BrowserManager
 from webcontrol.core.errors import SearchNotConfiguredError
+from webcontrol.core.navigation_escalation import NavigationEscalator
 from webcontrol.core.page_parser import PageParser
 from webcontrol.core.search_tier import SearchTier
 from webcontrol.core.session_manager import SessionManager
@@ -31,6 +32,9 @@ class WebControlService:
         # Tier S is built eagerly so a missing key fails fast at startup.
         self._search_tier: SearchTier | None = (
             SearchTier(settings) if settings.search_tier_enabled else None
+        )
+        self._escalator = NavigationEscalator(
+            self._executor, self._session_manager, settings, self._search_tier
         )
 
     async def startup(self) -> None:
@@ -95,7 +99,7 @@ class WebControlService:
         session = self._session_manager.get_session(session_id)
         async with session.lock:
             self._session_manager.touch_session(session)
-            return await self._executor.navigate(session, req)
+            return await self._escalator.navigate(session, req)
 
     async def get_page_content(self, session_id: str) -> PageContent:
         session = self._session_manager.get_session(session_id)

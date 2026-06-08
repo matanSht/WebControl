@@ -9,6 +9,7 @@ from playwright.async_api import BrowserContext, Locator, Page
 from webcontrol.config import Settings
 from webcontrol.core.browser_manager import BrowserManager
 from webcontrol.core.errors import MaxSessionsError, SessionNotFoundError
+from webcontrol.core.stealth import STEALTH_INIT_SCRIPT, stealth_context_options
 from webcontrol.models.session import SessionCreate, SessionInfo
 from webcontrol.observability.activity import SessionActivityLog
 
@@ -48,33 +49,51 @@ class SessionManager:
             except asyncio.CancelledError:
                 pass
 
+    def _build_context_opts(
+        self,
+        opts: SessionCreate,
+        *,
+        user_agent_override: str | None = None,
+    ) -> dict:
+        # Stealth defaults first, so explicit options below win.
+        context_opts: dict = stealth_context_options(self._settings)
+        context_opts["viewport"] = {
+            "width": opts.viewport_width or self._settings.viewport_width,
+            "height": opts.viewport_height or self._settings.viewport_height,
+        }
+        ua = user_agent_override or opts.user_agent
+        if ua:
+            context_opts["user_agent"] = ua
+        if self._settings.proxy_server:
+            context_opts["proxy"] = self._proxy_opts()
+        return context_opts
+
+    def _proxy_opts(self) -> dict:
+        proxy: dict = {"server": self._settings.proxy_server}
+        if self._settings.proxy_username:
+            proxy["username"] = self._settings.proxy_username
+            proxy["password"] = self._settings.proxy_password
+        return proxy
+
+    async def _new_context_and_page(
+        self, context_opts: dict, enable_tracing: bool
+    ) -> tuple[BrowserContext, Page]:
+        context = await self._browser_manager.browser.new_context(**context_opts)
+        if self._settings.stealth_enabled:
+            await context.add_init_script(STEALTH_INIT_SCRIPT)
+        if enable_tracing:
+            await context.tracing.start(screenshots=True, snapshots=True, sources=False)
+        page = await context.new_page()
+        page.set_default_timeout(self._settings.action_timeout_ms)
+        page.set_default_navigation_timeout(self._settings.navigation_timeout_ms)
+        return context, page
+
     async def create_session(self, opts: SessionCreate, enable_tracing: bool = False) -> BrowserSession:
         if len(self._sessions) >= self._settings.max_sessions:
             raise MaxSessionsError(self._settings.max_sessions)
 
-        context_opts: dict = {
-            "viewport": {
-                "width": opts.viewport_width or self._settings.viewport_width,
-                "height": opts.viewport_height or self._settings.viewport_height,
-            },
-        }
-        if opts.user_agent:
-            context_opts["user_agent"] = opts.user_agent
-        if self._settings.proxy_server:
-            proxy: dict = {"server": self._settings.proxy_server}
-            if self._settings.proxy_username:
-                proxy["username"] = self._settings.proxy_username
-                proxy["password"] = self._settings.proxy_password
-            context_opts["proxy"] = proxy
-
-        context = await self._browser_manager.browser.new_context(**context_opts)
-
-        if enable_tracing:
-            await context.tracing.start(screenshots=True, snapshots=True, sources=False)
-
-        page = await context.new_page()
-        page.set_default_timeout(self._settings.action_timeout_ms)
-        page.set_default_navigation_timeout(self._settings.navigation_timeout_ms)
+        context_opts = self._build_context_opts(opts)
+        context, page = await self._new_context_and_page(context_opts, enable_tracing)
 
         now = datetime.now(UTC)
         session = BrowserSession(
@@ -90,6 +109,31 @@ class SessionManager:
         self._sessions[session.id] = session
         logger.info("Session created: id=%s name=%s tracing=%s", session.id, session.name, enable_tracing)
         return session
+
+    async def rebuild_context(
+        self, session: BrowserSession, *, user_agent: str | None = None
+    ) -> None:
+        """Replace a session's browser context in place (e.g. to add a proxy).
+
+        Builds a fresh context (stealth + proxy from settings, optional UA
+        override), swaps it onto the session, and closes the old one. The
+        ref_map is cleared because the old Locators belong to the closed page.
+        Used by the proxy escalation tier in core/navigation_escalation.py.
+        """
+        opts = SessionCreate(name=session.name)
+        context_opts = self._build_context_opts(opts, user_agent_override=user_agent)
+        new_context, new_page = await self._new_context_and_page(
+            context_opts, session.tracing_enabled
+        )
+        old_context = session.context
+        session.context = new_context
+        session.page = new_page
+        session.ref_map = {}
+        try:
+            await old_context.close()
+        except Exception as e:  # closing the discarded context must never fail the rebuild
+            logger.warning("Failed to close old context during rebuild: %s", e)
+        logger.info("Session context rebuilt: id=%s proxy=%s", session.id, bool(self._settings.proxy_server))
 
     def get_session(self, session_id: str) -> BrowserSession:
         session = self._sessions.get(session_id)

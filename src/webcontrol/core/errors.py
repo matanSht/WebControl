@@ -26,6 +26,25 @@ class NavigationError(WebControlError):
     pass
 
 
+class BlockedError(WebControlError):
+    """Raised when every browser tier was served an anti-bot block page.
+
+    Signals the caller to switch to read-only information gathering via the
+    `search` tool (Tier S), or to retry with `fallback_to_search=true`.
+    """
+
+    def __init__(self, url: str, reason: str, tiers_tried: list[str]):
+        tried = ", ".join(tiers_tried)
+        super().__init__(
+            f"Blocked at {url} after trying tier(s) [{tried}]: {reason}. "
+            "Use the 'search' tool for read-only info, or retry navigate with "
+            "fallback_to_search=true."
+        )
+        self.url = url
+        self.reason = reason
+        self.tiers_tried = tiers_tried
+
+
 class ActionError(WebControlError):
     pass
 

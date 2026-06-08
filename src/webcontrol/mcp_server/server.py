@@ -57,10 +57,23 @@ def create_mcp_server(get_service: callable) -> FastMCP:
         session_id: str,
         url: str,
         wait_until: str = "domcontentloaded",
+        fallback_to_search: bool = False,
     ) -> dict:
-        """Navigate to a URL and return the page content with interactive element refs."""
+        """Navigate to a URL and return the page content with interactive element refs.
+
+        If the site serves an anti-bot block page, WebControl auto-escalates
+        through its robustness tiers. The response includes `blocked`,
+        `tier_used`, and `block_reason`, so a returned page is never mistaken for
+        real content. If every browser tier is still blocked: by default this
+        raises a Blocked error recommending the `search` tool; set
+        `fallback_to_search=true` to instead return read-only search-index
+        results in `search_fallback` (cannot click/interact).
+        """
         service: WebControlService = get_service()
-        result = await service.navigate(session_id, NavigateRequest(url=url, wait_until=wait_until))
+        result = await service.navigate(
+            session_id,
+            NavigateRequest(url=url, wait_until=wait_until, fallback_to_search=fallback_to_search),
+        )
         return result.model_dump(mode="json")
 
     @mcp.tool()

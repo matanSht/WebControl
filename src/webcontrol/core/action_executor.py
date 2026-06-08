@@ -28,27 +28,45 @@ class ActionExecutor:
         self._parser = parser
         self._settings = settings
 
+    async def attempt_navigate(
+        self,
+        session: BrowserSession,
+        url: str,
+        wait_until: str,
+    ) -> tuple[int | None, PageContent]:
+        """Navigate and parse, returning the HTTP status and page content.
+
+        Unlike ``navigate`` this does NOT decide success or record activity —
+        block detection and per-tier accounting are the escalator's job (see
+        core/navigation_escalation.py). It still retries hard Playwright errors
+        and raises ``NavigationError`` when the page genuinely fails to load.
+        The HTTP status is the key signal a bot wall hides behind (a 200 block
+        page), so it is captured from the goto response and returned.
+        """
+        response = await with_retry(
+            lambda: session.page.goto(url, wait_until=wait_until),
+            retries=self._settings.navigation_retries,
+            delay_ms=self._settings.retry_delay_ms,
+            operation=f"navigate({url})",
+        )
+        status = response.status if response is not None else None
+        content = await self._parser.parse(session)
+        return status, content
+
     async def navigate(self, session: BrowserSession, req: NavigateRequest) -> ActionResult:
         with Timer() as t:
             try:
-                await with_retry(
-                    lambda: session.page.goto(req.url, wait_until=req.wait_until),
-                    retries=self._settings.navigation_retries,
-                    delay_ms=self._settings.retry_delay_ms,
-                    operation=f"navigate({req.url})",
-                )
+                status, content = await self.attempt_navigate(session, req.url, req.wait_until)
             except PlaywrightError as e:
                 session.activity.record(
                     action="navigate", url=req.url, duration_ms=t.elapsed_ms, success=False, error=str(e)[:200]
                 )
                 raise NavigationError(f"Navigation failed: {e}") from e
 
-            content = await self._parser.parse(session)
-
         session.activity.record(action="navigate", url=req.url, duration_ms=t.elapsed_ms, success=True)
         logger.info(
-            "navigate url=%s elements=%d forms=%d duration_ms=%.1f",
-            req.url, len(content.elements), len(content.forms), t.elapsed_ms,
+            "navigate url=%s status=%s elements=%d forms=%d duration_ms=%.1f",
+            req.url, status, len(content.elements), len(content.forms), t.elapsed_ms,
         )
         return ActionResult(success=True, page_content=content)
 

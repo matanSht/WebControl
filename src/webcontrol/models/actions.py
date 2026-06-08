@@ -6,6 +6,14 @@ from pydantic import BaseModel
 class NavigateRequest(BaseModel):
     url: str
     wait_until: Literal["load", "domcontentloaded", "networkidle"] = "domcontentloaded"
+    # When the page is blocked by an anti-bot wall, escalate through the
+    # robustness tiers (behavioral, proxy) before giving up. See
+    # core/navigation_escalation.py.
+    escalate: bool = True
+    # If every browser tier is still blocked, fall back to the search-index
+    # tier (Tier S) and return those results instead of raising BlockedError.
+    # Read-only — cannot click or interact. Requires the search tier configured.
+    fallback_to_search: bool = False
 
 
 class ClickRequest(BaseModel):

@@ -13,6 +13,7 @@ from webcontrol.api.routes_sessions import router as sessions_router
 from webcontrol.config import Settings
 from webcontrol.core.errors import (
     ActionError,
+    BlockedError,
     ElementNotFoundError,
     MaxSessionsError,
     NavigationError,
@@ -68,6 +69,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(NavigationError)
     async def navigation_error_handler(request: Request, exc: NavigationError):
         return JSONResponse(status_code=502, content={"error": str(exc)})
+
+    @app.exception_handler(BlockedError)
+    async def blocked_error_handler(request: Request, exc: BlockedError):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": str(exc),
+                "url": exc.url,
+                "reason": exc.reason,
+                "tiers_tried": exc.tiers_tried,
+            },
+        )
 
     @app.exception_handler(ActionError)
     async def action_error_handler(request: Request, exc: ActionError):

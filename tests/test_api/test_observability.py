@@ -25,7 +25,9 @@ async def test_activity_after_navigate(client):
     assert resp.status_code == 200
     entries = resp.json()
     assert len(entries) == 1
-    assert entries[0]["action"] == "navigate"
+    # The escalator tags the action with the robustness tier that handled it
+    # (e.g. "navigate:direct"), so escalation is visible in the activity log.
+    assert entries[0]["action"] == "navigate:direct"
     assert entries[0]["success"] is True
     assert entries[0]["url"] == "https://example.com"
     assert "duration_ms" in entries[0]
