@@ -165,3 +165,50 @@ Playwright's Chromium runs with sandboxing enabled by default. In Docker, the co
 - Sessions auto-expire after `WC_DEFAULT_SESSION_TTL_SECONDS` of inactivity
 - The cleanup loop runs every 60 seconds
 - On shutdown, all sessions are closed gracefully
+
+---
+
+## Security Hardening Roadmap
+
+The following items should be addressed as the service matures toward production use with sensitive data (e.g., credentials passed through `fill` actions).
+
+### Transport encryption (Priority: High)
+
+The API currently serves over plaintext HTTP. Any data sent between the LLM agent and WebControl — including passwords, form values, and the API key header — can be intercepted on the network.
+
+**Current risk by path:**
+
+| Path | Encrypted? | Risk |
+|------|-----------|------|
+| Agent → WebControl API | No (HTTP) | **High** — credentials travel in cleartext |
+| WebControl → Target site | Yes (HTTPS via Chromium) | Low |
+| Logs | No credentials logged | Low |
+| Activity log API | No credentials recorded | Low |
+| Playwright trace exports | Contains DOM with filled values | **Medium** |
+| PageContent response | May echo filled values back | **Medium** |
+
+**Localhost-only deployments** (agent and service on the same machine) have low interception risk. **Any network deployment** requires one of:
+
+- **Reverse proxy with TLS** — put nginx or Caddy in front with a certificate. Simplest path for production.
+- **Uvicorn native TLS** — pass `--ssl-keyfile` and `--ssl-certfile` to uvicorn. No extra process needed.
+- **Private network / VPN** — acceptable when both endpoints are in a trusted network segment.
+
+### Sensitive value scrubbing (Priority: Medium)
+
+- **Playwright tracing** (`enable_tracing: true`) captures full DOM snapshots at each step. Filled password fields will appear in the trace `.zip`. Consider scrubbing `<input type="password">` values from traces before export, or warning callers that traces may contain sensitive data.
+- **PageContent responses** include form field `value` attributes read from the DOM. After a `fill` action, the filled value may be echoed back in the response. Consider masking `type="password"` field values in `PageParser` output.
+
+### API key rotation (Priority: Medium)
+
+- Support multiple valid API keys to allow zero-downtime rotation.
+- Add key expiry or scoping (per-session, read-only vs. full access).
+
+### Rate limiting (Priority: Low)
+
+- Add per-IP or per-key rate limiting to prevent abuse.
+- Currently no limit beyond `WC_MAX_SESSIONS` on concurrent sessions.
+
+### Audit logging (Priority: Low)
+
+- Log which API key (or caller identity) initiated each session and action.
+- Retain audit logs separately from operational logs.
