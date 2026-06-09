@@ -27,7 +27,7 @@ class WebControlService:
         self._settings = settings
         self._browser_manager = BrowserManager(settings)
         self._session_manager = SessionManager(self._browser_manager, settings)
-        self._parser = PageParser()
+        self._parser = PageParser(settings)
         self._executor = ActionExecutor(self._parser, settings)
         # Tier S is built eagerly so a missing key fails fast at startup.
         self._search_tier: SearchTier | None = (

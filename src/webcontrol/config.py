@@ -49,6 +49,26 @@ class Settings(BaseSettings):
     navigation_escalation: bool = True
     behavioral_jitter_ms: int = 800  # max random pre-retry delay for the behavioral tier
 
+    # Page parsing limits — how much of a rendered page the parser captures.
+    # Raising these gives more reach on content-heavy pages (search results,
+    # catalogs) at the cost of a larger response and more per-element DOM
+    # round-trips. See core/page_parser.py.
+    max_text_content_chars: int = 8000
+    max_interactive_elements: int = 120
+    max_form_fields: int = 60
+    max_links: int = 80
+
+    # Page settle — wait for async / JS-rendered content to land before the
+    # parser snapshots the DOM. Pages routinely return HTTP 200 with a shell,
+    # then hydrate prices/listings/ratings via later XHR. See core/page_settle.py.
+    page_settle_enabled: bool = True
+    settle_timeout_ms: int = 4000  # ceiling for networkidle + wait_for_selector
+    dom_stable_polls: int = 2  # consecutive equal DOM-size reads required
+    dom_stable_interval_ms: int = 300  # gap between DOM-stability polls
+    scroll_to_load_default: bool = False  # auto-scroll on every navigate
+    scroll_steps: int = 8  # number of scroll steps when scroll_to_load is on
+    scroll_delay_ms: int = 250  # pause between scroll steps
+
     # Retry settings
     navigation_retries: int = 2
     action_retries: int = 1

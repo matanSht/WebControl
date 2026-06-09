@@ -132,6 +132,17 @@ All settings via env vars prefixed `WC_` (defined in `config.py`):
 | `WC_TIMEZONE_ID` | _(empty)_ | Override browser timezone |
 | `WC_NAVIGATION_ESCALATION` | true | Enable the navigate() tier escalation ladder |
 | `WC_BEHAVIORAL_JITTER_MS` | 800 | Max random pre-retry delay for the behavioral tier |
+| `WC_MAX_TEXT_CONTENT_CHARS` | 8000 | Max chars of body text captured per parse |
+| `WC_MAX_INTERACTIVE_ELEMENTS` | 120 | Max interactive elements captured per parse |
+| `WC_MAX_FORM_FIELDS` | 60 | Max form fields captured per parse |
+| `WC_MAX_LINKS` | 80 | Max links captured per parse |
+| `WC_PAGE_SETTLE_ENABLED` | true | Wait for async/JS-rendered content before snapshotting (see core/page_settle.py) |
+| `WC_SETTLE_TIMEOUT_MS` | 4000 | Ceiling for networkidle + wait_for_selector during settle |
+| `WC_DOM_STABLE_POLLS` | 2 | Consecutive equal DOM-size reads required to consider the page settled |
+| `WC_DOM_STABLE_INTERVAL_MS` | 300 | Gap between DOM-stability polls |
+| `WC_SCROLL_TO_LOAD_DEFAULT` | false | Auto-scroll on every navigate to trigger lazy content |
+| `WC_SCROLL_STEPS` | 8 | Scroll steps when scroll_to_load is on |
+| `WC_SCROLL_DELAY_MS` | 250 | Pause between scroll steps |
 | `WC_SEARCH_TIER_ENABLED` | false | Enable Tier S search index (needs `WC_SEARCH_API_KEY`) |
 | `WC_SEARCH_PROVIDER` | exa | Search provider (exa/brave) |
 | `WC_SEARCH_API_KEY` | _(empty)_ | API key for the search provider |

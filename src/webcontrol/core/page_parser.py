@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from playwright.async_api import Locator, Page
 
+from webcontrol.config import Settings
 from webcontrol.core.session_manager import BrowserSession
 from webcontrol.models.page import FormField, LinkInfo, PageContent, PageElement
 from webcontrol.observability.timing import Timer
@@ -16,10 +17,11 @@ INTERACTIVE_SELECTOR = (
     "[role='combobox'], [role='searchbox'], [role='slider'], [role='spinbutton']"
 )
 
-MAX_TEXT_CONTENT_LENGTH = 4000
-
 
 class PageParser:
+    def __init__(self, settings: Settings):
+        self._settings = settings
+
     async def parse(self, session: BrowserSession) -> PageContent:
         with Timer() as t:
             page = session.page
@@ -61,7 +63,7 @@ class PageParser:
         locators = page.locator(INTERACTIVE_SELECTOR)
         count = await locators.count()
 
-        for i in range(min(count, 80)):
+        for i in range(min(count, self._settings.max_interactive_elements)):
             el = locators.nth(i)
             try:
                 is_visible = await el.is_visible()
@@ -150,7 +152,7 @@ class PageParser:
         field_locators = page.locator("input, select, textarea")
         count = await field_locators.count()
 
-        for i in range(min(count, 50)):
+        for i in range(min(count, self._settings.max_form_fields)):
             el = field_locators.nth(i)
             try:
                 is_visible = await el.is_visible()
@@ -208,7 +210,7 @@ class PageParser:
         link_locators = page.locator("a[href]")
         count = await link_locators.count()
 
-        for i in range(min(count, 50)):
+        for i in range(min(count, self._settings.max_links)):
             el = link_locators.nth(i)
             try:
                 is_visible = await el.is_visible()
@@ -232,7 +234,7 @@ class PageParser:
         try:
             text = await page.inner_text("body")
             text = " ".join(text.split())
-            return text[:MAX_TEXT_CONTENT_LENGTH]
+            return text[: self._settings.max_text_content_chars]
         except Exception:
             return ""
 

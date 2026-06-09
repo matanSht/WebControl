@@ -14,6 +14,14 @@ class NavigateRequest(BaseModel):
     # tier (Tier S) and return those results instead of raising BlockedError.
     # Read-only — cannot click or interact. Requires the search tier configured.
     fallback_to_search: bool = False
+    # --- content settling (for JS / async-rendered pages) ---
+    # Wait for this CSS selector to become visible before snapshotting the DOM
+    # (e.g. ".a-price" on a search page whose prices arrive via later XHR).
+    wait_for_selector: str | None = None
+    # Auto-scroll the page to trigger lazy-loaded / on-scroll content before
+    # snapshotting. Recommended for infinite-scroll and search-result pages.
+    # None falls back to WC_SCROLL_TO_LOAD_DEFAULT. See core/page_settle.py.
+    scroll_to_load: bool | None = None
 
 
 class ClickRequest(BaseModel):

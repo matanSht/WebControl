@@ -44,6 +44,26 @@ async def test_navigate_and_get_content(client):
 
 
 @pytest.mark.asyncio
+async def test_navigate_with_settle_options(client):
+    resp = await client.post("/api/v1/sessions", json={"name": "settle-test"})
+    session_id = resp.json()["id"]
+
+    # wait_for_selector + scroll_to_load exercise the settle path before parse.
+    resp = await client.post(
+        f"/api/v1/sessions/{session_id}/navigate",
+        json={
+            "url": "https://example.com",
+            "wait_for_selector": "h1",
+            "scroll_to_load": True,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert "example" in data["page_content"]["title"].lower()
+
+
+@pytest.mark.asyncio
 async def test_close_session(client):
     resp = await client.post("/api/v1/sessions", json={})
     session_id = resp.json()["id"]

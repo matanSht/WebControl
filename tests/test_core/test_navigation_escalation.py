@@ -59,7 +59,7 @@ class FakeExecutor:
         self._script = list(script)
         self.calls = 0
 
-    async def attempt_navigate(self, session, url, wait_until):
+    async def attempt_navigate(self, session, url, wait_until, settle=None):
         item = self._script[min(self.calls, len(self._script) - 1)]
         self.calls += 1
         return item

@@ -29,6 +29,7 @@ from webcontrol.config import Settings
 from webcontrol.core.action_executor import ActionExecutor
 from webcontrol.core.block_detection import detect_block
 from webcontrol.core.errors import BlockedError, NavigationError
+from webcontrol.core.page_settle import SettleOptions
 from webcontrol.core.search_tier import SearchTier
 from webcontrol.core.session_manager import BrowserSession, SessionManager
 from webcontrol.models.actions import NavigateRequest
@@ -64,9 +65,12 @@ class NavigationEscalator:
     async def navigate(self, session: BrowserSession, req: NavigateRequest) -> ActionResult:
         tiers_tried: list[str] = []
         last_reason = ""
+        settle = self._settle_options(req)
 
         # --- Tier 0: direct (stealth context as-is) -------------------------
-        status, content, reason = await self._attempt(session, req.url, req.wait_until, "direct")
+        status, content, reason = await self._attempt(
+            session, req.url, req.wait_until, "direct", settle
+        )
         tiers_tried.append("direct")
         if reason is None:
             return self._ok(content, "direct")
@@ -76,7 +80,7 @@ class NavigationEscalator:
             return await self._terminal(session, req, content, last_reason, tiers_tried)
 
         # --- Tier 1: behavioral (human-like signals, longer settle) ---------
-        content, reason = await self._behavioral(session, req)
+        content, reason = await self._behavioral(session, req, settle)
         tiers_tried.append("behavioral")
         if reason is None:
             return self._ok(content, "behavioral")
@@ -84,7 +88,7 @@ class NavigationEscalator:
 
         # --- Tier 2: proxy (rebuild context through WC_PROXY_SERVER) ---------
         if self._settings.proxy_server:
-            content, reason = await self._proxy(session, req)
+            content, reason = await self._proxy(session, req, settle)
             tiers_tried.append("proxy")
             if reason is None:
                 return self._ok(content, "proxy")
@@ -93,15 +97,23 @@ class NavigationEscalator:
         # --- Terminal ---------------------------------------------------------
         return await self._terminal(session, req, content, last_reason, tiers_tried)
 
+    def _settle_options(self, req: NavigateRequest) -> SettleOptions:
+        scroll = (
+            req.scroll_to_load
+            if req.scroll_to_load is not None
+            else self._settings.scroll_to_load_default
+        )
+        return SettleOptions(wait_for_selector=req.wait_for_selector, scroll_to_load=scroll)
+
     # -- tier implementations -------------------------------------------------
 
     async def _behavioral(
-        self, session: BrowserSession, req: NavigateRequest
+        self, session: BrowserSession, req: NavigateRequest, settle: SettleOptions
     ) -> tuple[PageContent, str | None]:
         jitter = random.uniform(0, self._settings.behavioral_jitter_ms / 1000)
         await asyncio.sleep(jitter)
         status, content, reason = await self._attempt(
-            session, req.url, "networkidle", "behavioral"
+            session, req.url, "networkidle", "behavioral", settle
         )
         if reason is None:
             return content, None
@@ -117,19 +129,28 @@ class NavigationEscalator:
         return content, detect_block(status, content)
 
     async def _proxy(
-        self, session: BrowserSession, req: NavigateRequest
+        self, session: BrowserSession, req: NavigateRequest, settle: SettleOptions
     ) -> tuple[PageContent, str | None]:
         await self._sessions.rebuild_context(session, user_agent=_PROXY_TIER_USER_AGENT)
-        _, content, reason = await self._attempt(session, req.url, req.wait_until, "proxy")
+        _, content, reason = await self._attempt(
+            session, req.url, req.wait_until, "proxy", settle
+        )
         return content, reason
 
     async def _attempt(
-        self, session: BrowserSession, url: str, wait_until: str, tier: str
+        self,
+        session: BrowserSession,
+        url: str,
+        wait_until: str,
+        tier: str,
+        settle: SettleOptions | None = None,
     ) -> tuple[int | None, PageContent, str | None]:
         """Run one navigation attempt; return (status, content, block_reason)."""
         with Timer() as t:
             try:
-                status, content = await self._executor.attempt_navigate(session, url, wait_until)
+                status, content = await self._executor.attempt_navigate(
+                    session, url, wait_until, settle
+                )
             except PlaywrightError as e:
                 session.activity.record(
                     action=f"navigate:{tier}", url=url, duration_ms=t.elapsed_ms,

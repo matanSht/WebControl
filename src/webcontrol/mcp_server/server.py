@@ -58,6 +58,8 @@ def create_mcp_server(get_service: callable) -> FastMCP:
         url: str,
         wait_until: str = "domcontentloaded",
         fallback_to_search: bool = False,
+        wait_for_selector: str | None = None,
+        scroll_to_load: bool | None = None,
     ) -> dict:
         """Navigate to a URL and return the page content with interactive element refs.
 
@@ -68,11 +70,24 @@ def create_mcp_server(get_service: callable) -> FastMCP:
         raises a Blocked error recommending the `search` tool; set
         `fallback_to_search=true` to instead return read-only search-index
         results in `search_fallback` (cannot click/interact).
+
+        For pages whose content (prices, listings, ratings) is rendered by
+        JavaScript after load, use `wait_for_selector` to block until a CSS
+        selector for that content appears (e.g. ".a-price"), and/or
+        `scroll_to_load=true` to auto-scroll and trigger lazy / on-scroll
+        loaders before the page is read. Both make async content land before
+        the snapshot.
         """
         service: WebControlService = get_service()
         result = await service.navigate(
             session_id,
-            NavigateRequest(url=url, wait_until=wait_until, fallback_to_search=fallback_to_search),
+            NavigateRequest(
+                url=url,
+                wait_until=wait_until,
+                fallback_to_search=fallback_to_search,
+                wait_for_selector=wait_for_selector,
+                scroll_to_load=scroll_to_load,
+            ),
         )
         return result.model_dump(mode="json")
 

@@ -6,6 +6,7 @@ from playwright.async_api import Error as PlaywrightError
 from webcontrol.config import Settings
 from webcontrol.core.errors import ActionError, ElementNotFoundError, NavigationError
 from webcontrol.core.page_parser import PageParser
+from webcontrol.core.page_settle import SettleOptions, settle_page
 from webcontrol.core.retry import with_retry
 from webcontrol.core.session_manager import BrowserSession
 from webcontrol.models.actions import (
@@ -33,6 +34,7 @@ class ActionExecutor:
         session: BrowserSession,
         url: str,
         wait_until: str,
+        settle: SettleOptions | None = None,
     ) -> tuple[int | None, PageContent]:
         """Navigate and parse, returning the HTTP status and page content.
 
@@ -42,6 +44,10 @@ class ActionExecutor:
         and raises ``NavigationError`` when the page genuinely fails to load.
         The HTTP status is the key signal a bot wall hides behind (a 200 block
         page), so it is captured from the goto response and returned.
+
+        When ``settle`` is provided, async / JS-rendered content is given a
+        bounded chance to land before the DOM is snapshotted (see
+        core/page_settle.py); without it the page is parsed immediately.
         """
         response = await with_retry(
             lambda: session.page.goto(url, wait_until=wait_until),
@@ -50,6 +56,8 @@ class ActionExecutor:
             operation=f"navigate({url})",
         )
         status = response.status if response is not None else None
+        if settle is not None:
+            await settle_page(session.page, settle, self._settings)
         content = await self._parser.parse(session)
         return status, content
 
