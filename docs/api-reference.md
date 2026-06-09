@@ -102,19 +102,35 @@ POST /sessions/{session_id}/navigate
 |-------|------|----------|---------|-------------|
 | `url` | string | yes | — | URL to navigate to |
 | `wait_until` | string | no | `"domcontentloaded"` | Wait condition: `"load"`, `"domcontentloaded"`, `"networkidle"` |
+| `escalate` | bool | no | `true` | Auto-escalate through robustness tiers if the page is blocked |
+| `fallback_to_search` | bool | no | `false` | If all browser tiers are blocked, return read-only search-index results instead of a `409` (requires Tier S configured) |
 
 **Response (200):**
 
 ```json
 {
   "success": true,
-  "page_content": { ... }
+  "page_content": { ... },
+  "blocked": false,
+  "tier_used": "direct",
+  "block_reason": null,
+  "search_fallback": null
 }
 ```
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `blocked` | bool | `true` if an anti-bot wall was detected (even when a page is still returned) |
+| `tier_used` | string | Which robustness tier produced this result: `direct` / `behavioral` / `proxy` / `search` |
+| `block_reason` | string \| null | Why it was flagged (matched marker or status); `null` when clean |
+| `search_fallback` | object \| null | A `SearchResult` when navigate fell back to Tier S; otherwise `null` |
+
 **Errors:**
 - `404` — Session not found
+- `409` — Blocked: every browser tier was served an anti-bot block page (use the search endpoint, or retry with `fallback_to_search: true`)
 - `502` — Navigation failed (timeout, DNS error, etc.)
+
+See [robustness.md](robustness.md) for the escalation ladder and block detection.
 
 ---
 
@@ -272,6 +288,46 @@ Run arbitrary JavaScript on the page.
 
 ---
 
+## Search (Tier S)
+
+```
+POST /search
+```
+
+Read-only search via a pre-crawled search index (Exa or Brave). The target site
+is **never contacted directly**, so anti-bot walls don't apply. No session
+required. Cannot click or interact — use it for info gathering when `navigate`
+gets blocked. Requires `WC_SEARCH_TIER_ENABLED=true` and `WC_SEARCH_API_KEY`.
+
+**Request body:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `query` | string | yes | — | Search query |
+| `max_results` | int | no | `WC_SEARCH_MAX_RESULTS` (5) | Max results to return |
+| `fetch_contents` | bool | no | `WC_SEARCH_FETCH_CONTENTS` (true) | Include full extracted page text (Exa) |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "query": "iphone 17 case",
+  "provider": "exa",
+  "tier_used": "search",
+  "results": [
+    {"title": "...", "url": "https://...", "snippet": "...", "content": "...", "score": 0.83}
+  ],
+  "timestamp": "2025-01-15T10:32:00Z"
+}
+```
+
+**Errors:**
+- `503` — Search tier not configured (`WC_SEARCH_TIER_ENABLED`/`WC_SEARCH_API_KEY` missing)
+- `502` — Search provider request failed
+
+---
+
 ## Health Check
 
 ```
@@ -294,9 +350,10 @@ Always unauthenticated.
 |--------|---------|
 | `401` | Missing or invalid API key (when `WC_API_KEY` is set) |
 | `404` | Session not found |
-| `409` | Max sessions reached |
+| `409` | Max sessions reached, or navigation blocked by an anti-bot wall after all tiers |
 | `422` | Element not found, not interactable, or JS error |
-| `502` | Navigation failed (upstream/network error) |
+| `502` | Navigation failed, or search provider error (upstream/network) |
+| `503` | Search tier not configured |
 
 ---
 

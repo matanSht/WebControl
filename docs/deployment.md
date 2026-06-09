@@ -28,6 +28,10 @@ WC_API_KEY="my-secret" WC_PROXY_SERVER="http://proxy:8080" webcontrol serve
 WC_LOG_JSON=true WC_LOG_LEVEL=INFO webcontrol serve
 ```
 
+If the configured port is already in use, `serve` automatically probes up to 10
+successive ports, logs which one it falls back to, and exits with an error only
+if none are free.
+
 ### Run as Background Service (macOS launchd)
 
 Create `~/Library/LaunchAgents/com.webcontrol.plist`:

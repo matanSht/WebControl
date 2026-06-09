@@ -222,6 +222,8 @@ When building agent prompts that use WebControl:
 
 5. **Prefer forms over elements:** "Check `forms` first for input fields — it includes labels and types. Use `elements` for buttons and interactive widgets."
 
+6. **Watch for blocks:** "Check `blocked` and `tier_used` on navigate responses. If `blocked` is true or you get a Blocked error, the site has an anti-bot wall — switch to the `search` tool for read-only info, or retry navigate with `fallback_to_search: true`."
+
 ---
 
 ## Multi-Step Flows
@@ -252,4 +254,5 @@ The session preserves cookies between steps, so the login persists through the f
 | Navigation timeout | Retry with `wait_until: "load"` or increase timeout |
 | Session expired | Create a new session and restart the flow |
 | Page requires JavaScript wait | Use `execute_js` to wait for a condition, then `get_page_content` |
+| Site blocked by anti-bot wall | Use the `search` tool, or retry navigate with `fallback_to_search: true` |
 | Element not visible | May need to scroll — use `execute_js("window.scrollBy(0, 500)")` then retry |

@@ -84,8 +84,14 @@ Navigate to a URL and return the page content with interactive element refs.
 | `session_id` | string | yes | — | Target session |
 | `url` | string | yes | — | URL to navigate to |
 | `wait_until` | string | no | `"domcontentloaded"` | Wait condition |
+| `fallback_to_search` | bool | no | `false` | If all browser tiers are blocked, return read-only search-index results instead of an error |
 
-**Returns:** `ActionResult` with `page_content` containing elements, forms, and links with refs.
+**Returns:** `ActionResult` with `page_content` plus robustness metadata: `blocked`
+(true if an anti-bot wall was detected), `tier_used` (`direct` / `behavioral` /
+`proxy` / `search`), `block_reason`, and `search_fallback` (a `SearchResult` when
+it fell back to Tier S). If every browser tier is blocked and
+`fallback_to_search` is false, the tool reports a Blocked error recommending the
+`search` tool. See [robustness.md](robustness.md).
 
 ---
 
@@ -182,6 +188,26 @@ Execute JavaScript code on the current page.
 
 ---
 
+### search
+
+Search the web via a pre-crawled search index (Tier S). Reads results from a
+search provider's cache **without contacting the target site**, so it bypasses
+anti-bot walls (e.g. Amazon's "Continue Shopping" block) that defeat a headless
+browser. Use it for read-only info gathering when `navigate` gets blocked or
+interaction isn't needed. No session required. Requires
+`WC_SEARCH_TIER_ENABLED=true` and `WC_SEARCH_API_KEY`.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | yes | — | Search query |
+| `max_results` | int | no | 5 | Max results |
+| `fetch_contents` | bool | no | true | Include full extracted page text (Exa) |
+
+**Returns:** `SearchResult` with `results` (title, url, snippet, content, score),
+`provider`, and `tier_used`.
+
+---
+
 ## Usage Pattern
 
 The typical agent workflow:
@@ -209,5 +235,6 @@ When a tool fails, the response contains an error message. Common errors:
 | Session not found | Session expired or was closed | Create a new session |
 | Element ref not found | Page changed since last read | Call `get_page_content` to get fresh refs |
 | Navigation failed | Network timeout or DNS failure | Retry or check URL |
+| Blocked | Anti-bot wall after all browser tiers | Use the `search` tool, or retry `navigate` with `fallback_to_search=true` |
 | Max sessions reached | Too many open sessions | Close unused sessions first |
 | Action failed | Element not interactable | May need to scroll, wait, or try a different element |
