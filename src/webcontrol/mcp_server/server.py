@@ -8,6 +8,7 @@ from webcontrol.models.actions import (
     ExtractRequest,
     FillRequest,
     NavigateRequest,
+    NetworkCaptureRequest,
     SelectRequest,
     SubmitRequest,
 )
@@ -190,6 +191,57 @@ def create_mcp_server(get_service: callable) -> FastMCP:
         service: WebControlService = get_service()
         result = await service.get_accessibility_tree(session_id)
         return result.model_dump(mode="json")
+
+    @mcp.tool()
+    async def configure_network_capture(
+        session_id: str,
+        enabled: bool = True,
+        url_filter: str | None = None,
+        json_only: bool = True,
+    ) -> dict:
+        """Start or stop capturing the page's XHR/fetch responses for a session.
+
+        The deepest extraction lever: instead of scraping JS-rendered values from
+        the DOM, record the raw API payloads the page fetches — the JSON behind
+        prices/listings on SPAs and search pages. Enable this BEFORE navigating or
+        interacting, then read the payloads with get_network_capture.
+
+        `json_only=true` (default) keeps only JSON responses; set false to capture
+        all. `url_filter` keeps only responses whose URL contains that substring
+        (e.g. "/api/" or "price"). Returns the active {enabled, url_filter, json_only}.
+        """
+        service: WebControlService = get_service()
+        result = await service.configure_network_capture(
+            session_id,
+            NetworkCaptureRequest(enabled=enabled, url_filter=url_filter, json_only=json_only),
+        )
+        return result.model_dump(mode="json")
+
+    @mcp.tool()
+    async def get_network_capture(
+        session_id: str,
+        limit: int = 50,
+        url_filter: str | None = None,
+    ) -> dict:
+        """Get the XHR/fetch responses captured for a session (most recent last).
+
+        Requires capture to have been enabled with configure_network_capture
+        before the page loaded. Each entry has url, status, method, resource_type,
+        content_type, and body (parsed JSON or capped text). `url_filter` further
+        narrows the returned set. Returns {count, responses}.
+        """
+        service: WebControlService = get_service()
+        result = await service.get_network_capture(
+            session_id, limit=limit, url_filter=url_filter
+        )
+        return result.model_dump(mode="json")
+
+    @mcp.tool()
+    async def clear_network_capture(session_id: str) -> dict:
+        """Clear the captured XHR/fetch responses for a session."""
+        service: WebControlService = get_service()
+        await service.clear_network_capture(session_id)
+        return {"status": "cleared", "session_id": session_id}
 
     @mcp.tool()
     async def screenshot(session_id: str) -> dict:

@@ -57,3 +57,20 @@ class AccessibilityResult(BaseModel):
     snapshot: str | None = None
     timestamp: datetime
     error: str | None = None
+
+
+class NetworkCaptureStatus(BaseModel):
+    success: bool
+    enabled: bool
+    url_filter: str | None = None
+    json_only: bool = True
+
+
+class NetworkCaptureResult(BaseModel):
+    success: bool
+    count: int
+    # One dict per captured response: url, status, method, resource_type,
+    # content_type, body (parsed JSON or capped text), timestamp.
+    responses: list[dict] = []
+    timestamp: datetime
+    error: str | None = None

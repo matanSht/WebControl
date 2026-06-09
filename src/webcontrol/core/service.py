@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from webcontrol.config import Settings
 from webcontrol.core.action_executor import ActionExecutor
@@ -14,6 +14,7 @@ from webcontrol.models.actions import (
     ExtractRequest,
     FillRequest,
     NavigateRequest,
+    NetworkCaptureRequest,
     SelectRequest,
     SubmitRequest,
 )
@@ -23,6 +24,8 @@ from webcontrol.models.responses import (
     ActionResult,
     ExtractResult,
     HtmlResult,
+    NetworkCaptureResult,
+    NetworkCaptureStatus,
     ScreenshotResult,
 )
 from webcontrol.models.search import SearchRequest, SearchResult
@@ -161,6 +164,43 @@ class WebControlService:
         async with session.lock:
             self._session_manager.touch_session(session)
             return await self._executor.get_accessibility_tree(session)
+
+    async def configure_network_capture(
+        self, session_id: str, req: NetworkCaptureRequest
+    ) -> NetworkCaptureStatus:
+        session = self._session_manager.get_session(session_id)
+        async with session.lock:
+            self._session_manager.touch_session(session)
+            session.network.configure(
+                enabled=req.enabled, url_filter=req.url_filter, json_only=req.json_only
+            )
+        return NetworkCaptureStatus(
+            success=True,
+            enabled=session.network.enabled,
+            url_filter=session.network.url_filter,
+            json_only=session.network.json_only,
+        )
+
+    async def get_network_capture(
+        self, session_id: str, limit: int = 50, url_filter: str | None = None
+    ) -> NetworkCaptureResult:
+        session = self._session_manager.get_session(session_id)
+        self._session_manager.touch_session(session)
+        # Wait for in-flight body reads so the snapshot is complete; capture
+        # happens on background tasks that may still be running after navigate.
+        await session.network.drain()
+        entries = session.network.get_entries(limit=limit, url_filter=url_filter)
+        return NetworkCaptureResult(
+            success=True,
+            count=len(entries),
+            responses=entries,
+            timestamp=datetime.now(UTC),
+        )
+
+    async def clear_network_capture(self, session_id: str) -> None:
+        session = self._session_manager.get_session(session_id)
+        self._session_manager.touch_session(session)
+        session.network.clear()
 
     async def screenshot(self, session_id: str) -> ScreenshotResult:
         session = self._session_manager.get_session(session_id)

@@ -8,6 +8,7 @@ from webcontrol.models.actions import (
     ExtractRequest,
     FillRequest,
     NavigateRequest,
+    NetworkCaptureRequest,
     SelectRequest,
     SubmitRequest,
 )
@@ -17,6 +18,8 @@ from webcontrol.models.responses import (
     ActionResult,
     ExtractResult,
     HtmlResult,
+    NetworkCaptureResult,
+    NetworkCaptureStatus,
     ScreenshotResult,
 )
 
@@ -108,6 +111,33 @@ async def get_accessibility_tree(
     service: WebControlService = Depends(get_service),
 ) -> AccessibilityResult:
     return await service.get_accessibility_tree(session_id)
+
+
+@router.post("/network-capture", response_model=NetworkCaptureStatus)
+async def configure_network_capture(
+    session_id: str,
+    body: NetworkCaptureRequest,
+    service: WebControlService = Depends(get_service),
+) -> NetworkCaptureStatus:
+    return await service.configure_network_capture(session_id, body)
+
+
+@router.get("/network-capture", response_model=NetworkCaptureResult)
+async def get_network_capture(
+    session_id: str,
+    limit: int = 50,
+    url_filter: str | None = None,
+    service: WebControlService = Depends(get_service),
+) -> NetworkCaptureResult:
+    return await service.get_network_capture(session_id, limit=limit, url_filter=url_filter)
+
+
+@router.delete("/network-capture", status_code=204)
+async def clear_network_capture(
+    session_id: str,
+    service: WebControlService = Depends(get_service),
+) -> None:
+    await service.clear_network_capture(session_id)
 
 
 @router.get("/screenshot", response_model=ScreenshotResult)

@@ -65,3 +65,12 @@ class ExtractRequest(BaseModel):
     fields: list[ExtractField]
     # Max rows to return (capped by WC_MAX_EXTRACT_ROWS).
     limit: int = 50
+
+
+class NetworkCaptureRequest(BaseModel):
+    # Start (True) or stop (False) recording XHR/fetch responses for the session.
+    enabled: bool = True
+    # Only capture responses whose URL contains this substring (None = any URL).
+    url_filter: str | None = None
+    # Only capture JSON responses (the usual home of API data). False = all.
+    json_only: bool = True

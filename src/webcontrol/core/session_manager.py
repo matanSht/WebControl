@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from playwright.async_api import BrowserContext, Locator, Page
+from playwright.async_api import Response as PlaywrightResponse
 
 from webcontrol.config import Settings
 from webcontrol.core.browser_manager import BrowserManager
@@ -12,6 +13,7 @@ from webcontrol.core.errors import MaxSessionsError, SessionNotFoundError
 from webcontrol.core.stealth import STEALTH_INIT_SCRIPT, stealth_context_options
 from webcontrol.models.session import SessionCreate, SessionInfo
 from webcontrol.observability.activity import SessionActivityLog
+from webcontrol.observability.network import CapturedResponse, NetworkCapture, parse_body
 
 logger = logging.getLogger("webcontrol.sessions")
 
@@ -29,6 +31,7 @@ class BrowserSession:
     ref_map: dict[str, Locator] = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     activity: SessionActivityLog = field(default_factory=SessionActivityLog)
+    network: NetworkCapture = field(default_factory=NetworkCapture)
 
 
 class SessionManager:
@@ -76,7 +79,10 @@ class SessionManager:
         return proxy
 
     async def _new_context_and_page(
-        self, context_opts: dict, enable_tracing: bool
+        self,
+        context_opts: dict,
+        enable_tracing: bool,
+        network: NetworkCapture | None = None,
     ) -> tuple[BrowserContext, Page]:
         context = await self._browser_manager.browser.new_context(**context_opts)
         if self._settings.stealth_enabled:
@@ -86,14 +92,58 @@ class SessionManager:
         page = await context.new_page()
         page.set_default_timeout(self._settings.action_timeout_ms)
         page.set_default_navigation_timeout(self._settings.navigation_timeout_ms)
+        if network is not None:
+            self._attach_network_listener(page, network)
         return context, page
+
+    def _attach_network_listener(self, page: Page, network: NetworkCapture) -> None:
+        page.on("response", lambda response: self._on_response(response, network))
+
+    def _on_response(self, response: PlaywrightResponse, network: NetworkCapture) -> None:
+        # Cheap synchronous filter first, so a disabled/irrelevant response never
+        # spawns a body-read task.
+        try:
+            if not network.enabled:
+                return
+            content_type = response.headers.get("content-type", "")
+            if not network.matches(
+                response.url, response.request.resource_type, content_type
+            ):
+                return
+        except Exception:
+            return
+        task = asyncio.create_task(self._capture_body(response, network, content_type))
+        network.track(task)
+
+    async def _capture_body(
+        self, response: PlaywrightResponse, network: NetworkCapture, content_type: str
+    ) -> None:
+        try:
+            text = await response.text()
+        except Exception:
+            return  # body unavailable (redirect, aborted, already gone) — skip
+        network.record(
+            CapturedResponse(
+                timestamp=datetime.now(UTC),
+                url=response.url,
+                status=response.status,
+                method=response.request.method,
+                resource_type=response.request.resource_type,
+                content_type=content_type,
+                body=parse_body(text, content_type, network.max_body_chars),
+            )
+        )
 
     async def create_session(self, opts: SessionCreate, enable_tracing: bool = False) -> BrowserSession:
         if len(self._sessions) >= self._settings.max_sessions:
             raise MaxSessionsError(self._settings.max_sessions)
 
         context_opts = self._build_context_opts(opts)
-        context, page = await self._new_context_and_page(context_opts, enable_tracing)
+        network = NetworkCapture(
+            max_entries=self._settings.network_capture_max_entries,
+            max_body_chars=self._settings.network_capture_max_body_chars,
+        )
+        context, page = await self._new_context_and_page(context_opts, enable_tracing, network)
 
         now = datetime.now(UTC)
         session = BrowserSession(
@@ -105,6 +155,7 @@ class SessionManager:
             last_active=now,
             ttl_seconds=opts.ttl_seconds or self._settings.default_session_ttl_seconds,
             tracing_enabled=enable_tracing,
+            network=network,
         )
         self._sessions[session.id] = session
         logger.info("Session created: id=%s name=%s tracing=%s", session.id, session.name, enable_tracing)
@@ -123,7 +174,7 @@ class SessionManager:
         opts = SessionCreate(name=session.name)
         context_opts = self._build_context_opts(opts, user_agent_override=user_agent)
         new_context, new_page = await self._new_context_and_page(
-            context_opts, session.tracing_enabled
+            context_opts, session.tracing_enabled, session.network
         )
         old_context = session.context
         session.context = new_context

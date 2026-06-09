@@ -5,6 +5,7 @@ from webcontrol.models.actions import (
     ExtractRequest,
     FillRequest,
     NavigateRequest,
+    NetworkCaptureRequest,
     SelectRequest,
     SubmitRequest,
 )
@@ -14,6 +15,8 @@ from webcontrol.models.responses import (
     ActionResult,
     ExtractResult,
     HtmlResult,
+    NetworkCaptureResult,
+    NetworkCaptureStatus,
     ScreenshotResult,
 )
 from webcontrol.models.session import SessionCreate, SessionInfo
@@ -30,6 +33,9 @@ __all__ = [
     "FormField",
     "HtmlResult",
     "NavigateRequest",
+    "NetworkCaptureRequest",
+    "NetworkCaptureResult",
+    "NetworkCaptureStatus",
     "PageContent",
     "PageElement",
     "ScreenshotResult",

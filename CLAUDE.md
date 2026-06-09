@@ -72,7 +72,7 @@ LLM Agent → REST (/api/v1) or MCP tools (/mcp)
 
 **Navigation robustness.** Anti-bot walls (Amazon, Cloudflare) often serve a block page with HTTP 200, so `goto()` succeeds while returning junk. `navigate()` goes through `NavigationEscalator` (`core/navigation_escalation.py`), which runs `detect_block()` (`core/block_detection.py`) after each attempt and climbs a tier ladder: **direct** (stealth, `core/stealth.py`) → **behavioral** (jitter + networkidle + scroll/mouse) → **proxy** (rebuilds the context through `WC_PROXY_SERVER`; skipped if unset) → terminal. On terminal block it raises `BlockedError` (HTTP 409), or — when `NavigateRequest.fallback_to_search=true` — returns Tier S search results in `ActionResult.search_fallback`. Every `ActionResult` carries `blocked`, `tier_used`, `block_reason` so a block page is never reported as success. Full detail: [docs/robustness.md](docs/robustness.md).
 
-**Rendering reach & accurate extraction.** JS/async-rendered content (prices, listings) often isn't in the DOM when `navigate()` returns. Two layers address this. *Reach* — before parsing, `core/page_settle.py` waits for content to land (`networkidle` + a DOM-size stability poll, plus opt-in `wait_for_selector` and `scroll_to_load` on `NavigateRequest`); parse caps are configurable (`WC_MAX_TEXT_CONTENT_CHARS`, etc.). *Accuracy* — rather than mining the truncated text dump, use targeted/structured reads: the **`extract`** action (`ExtractRequest` → CSS row selector + per-field selectors/attributes, via `page.eval_on_selector_all`) returns clean structured rows; `PageContent.structured_data` carries parsed JSON-LD and `meta` includes OpenGraph/microdata price tags (`core/page_parser.py`); and **`get_html`** / **`get_accessibility_tree`** (ARIA snapshot) are full-fidelity fallbacks. All exposed over REST (`/extract`, `/html`, `/accessibility`) and MCP.
+**Rendering reach & accurate extraction.** JS/async-rendered content (prices, listings) often isn't in the DOM when `navigate()` returns. Two layers address this. *Reach* — before parsing, `core/page_settle.py` waits for content to land (`networkidle` + a DOM-size stability poll, plus opt-in `wait_for_selector` and `scroll_to_load` on `NavigateRequest`); parse caps are configurable (`WC_MAX_TEXT_CONTENT_CHARS`, etc.). *Accuracy* — rather than mining the truncated text dump, use targeted/structured reads: the **`extract`** action (`ExtractRequest` → CSS row selector + per-field selectors/attributes, via `page.eval_on_selector_all`) returns clean structured rows; `PageContent.structured_data` carries parsed JSON-LD and `meta` includes OpenGraph/microdata price tags (`core/page_parser.py`); and **`get_html`** / **`get_accessibility_tree`** (ARIA snapshot) are full-fidelity fallbacks. The deepest layer is **network capture** (see Observability) — record the raw XHR/fetch JSON the page fetches rather than reading the DOM at all. All exposed over REST (`/extract`, `/html`, `/accessibility`, `/network-capture`) and MCP.
 
 ## Adding a New Action
 
@@ -150,6 +150,8 @@ All settings via env vars prefixed `WC_` (defined in `config.py`):
 | `WC_STRUCTURED_DATA_MAX_BLOBS` | 10 | Max JSON-LD scripts parsed per page |
 | `WC_STRUCTURED_DATA_MAX_CHARS` | 20000 | Skip JSON-LD scripts larger than this |
 | `WC_HTML_MAX_CHARS` | 500000 | Cap for get_html() raw page source |
+| `WC_NETWORK_CAPTURE_MAX_ENTRIES` | 50 | Per-session captured-response ring-buffer size |
+| `WC_NETWORK_CAPTURE_MAX_BODY_CHARS` | 100000 | Per-response captured body cap |
 | `WC_SEARCH_TIER_ENABLED` | false | Enable Tier S search index (needs `WC_SEARCH_API_KEY`) |
 | `WC_SEARCH_PROVIDER` | exa | Search provider (exa/brave) |
 | `WC_SEARCH_API_KEY` | _(empty)_ | API key for the search provider |
@@ -161,13 +163,14 @@ All settings via env vars prefixed `WC_` (defined in `config.py`):
 
 ## Observability
 
-Five layers — see [docs/observability.md](docs/observability.md) for full details:
+Six layers — see [docs/observability.md](docs/observability.md) for full details:
 
 1. **Request logging** — every HTTP request with method, path, status, duration (`webcontrol.http` logger)
 2. **Correlation IDs** — `x-request-id` header auto-generated or passed through; propagates via contextvars to all log lines
 3. **Action timing** — every Playwright action logged with `duration_ms` (INFO for navigate, DEBUG for others)
 4. **Session activity log** — per-session deque of last 200 actions; query via `GET /api/v1/sessions/{id}/activity` or `get_session_activity` MCP tool
 5. **Playwright tracing** — opt-in per session (`enable_tracing: true`); export as `.zip` for Trace Viewer
+6. **Network capture** — opt-in per session; a `page.on("response")` listener (`observability/network.py`) records matching XHR/fetch responses (JSON by default, optional URL filter) into a bounded ring buffer so an agent can read the raw API payloads behind JS-rendered data. Configure/read/clear via `POST|GET|DELETE /api/v1/sessions/{id}/network-capture` or the `configure_network_capture` / `get_network_capture` / `clear_network_capture` MCP tools.
 
 Response headers on every request: `x-request-id`, `x-response-time-ms`.
 

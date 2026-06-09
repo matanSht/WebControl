@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     structured_data_max_chars: int = 20000  # skip JSON-LD scripts larger than this
     html_max_chars: int = 500000  # cap for get_html() raw page source
 
+    # Network capture — record XHR/fetch responses so an agent can read the raw
+    # JSON a page fetches (the data behind JS-rendered prices/listings) instead
+    # of scraping the DOM. Off per session until enabled. See observability/network.py.
+    network_capture_max_entries: int = 50  # ring-buffer size per session
+    network_capture_max_body_chars: int = 100000  # per-response body cap
+
     # Retry settings
     navigation_retries: int = 2
     action_retries: int = 1
