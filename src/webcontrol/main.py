@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import socket
 import sys
 
 import uvicorn
@@ -29,6 +30,18 @@ def cli() -> None:
         sys.exit(1)
 
 
+_MAX_PORT_ATTEMPTS = 10
+
+
+def _port_available(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host if host != "0.0.0.0" else "127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
 def _run_serve(args) -> None:
     settings = Settings()
     if hasattr(args, "host") and args.host:
@@ -36,8 +49,21 @@ def _run_serve(args) -> None:
     if hasattr(args, "port") and args.port:
         settings.port = args.port
 
+    port = settings.port
+    for _ in range(_MAX_PORT_ATTEMPTS):
+        if _port_available(settings.host, port):
+            break
+        print(f"Port {port} is in use, trying {port + 1}...")
+        port += 1
+    else:
+        print(f"No available port found in range {settings.port}–{port - 1}", file=sys.stderr)
+        sys.exit(1)
+
+    if port != settings.port:
+        print(f"Using fallback port {port}")
+
     app = create_app(settings)
-    uvicorn.run(app, host=settings.host, port=settings.port)
+    uvicorn.run(app, host=settings.host, port=port)
 
 
 def _run_mcp_stdio() -> None:
