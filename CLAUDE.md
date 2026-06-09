@@ -72,6 +72,8 @@ LLM Agent → REST (/api/v1) or MCP tools (/mcp)
 
 **Navigation robustness.** Anti-bot walls (Amazon, Cloudflare) often serve a block page with HTTP 200, so `goto()` succeeds while returning junk. `navigate()` goes through `NavigationEscalator` (`core/navigation_escalation.py`), which runs `detect_block()` (`core/block_detection.py`) after each attempt and climbs a tier ladder: **direct** (stealth, `core/stealth.py`) → **behavioral** (jitter + networkidle + scroll/mouse) → **proxy** (rebuilds the context through `WC_PROXY_SERVER`; skipped if unset) → terminal. On terminal block it raises `BlockedError` (HTTP 409), or — when `NavigateRequest.fallback_to_search=true` — returns Tier S search results in `ActionResult.search_fallback`. Every `ActionResult` carries `blocked`, `tier_used`, `block_reason` so a block page is never reported as success. Full detail: [docs/robustness.md](docs/robustness.md).
 
+**Rendering reach & accurate extraction.** JS/async-rendered content (prices, listings) often isn't in the DOM when `navigate()` returns. Two layers address this. *Reach* — before parsing, `core/page_settle.py` waits for content to land (`networkidle` + a DOM-size stability poll, plus opt-in `wait_for_selector` and `scroll_to_load` on `NavigateRequest`); parse caps are configurable (`WC_MAX_TEXT_CONTENT_CHARS`, etc.). *Accuracy* — rather than mining the truncated text dump, use targeted/structured reads: the **`extract`** action (`ExtractRequest` → CSS row selector + per-field selectors/attributes, via `page.eval_on_selector_all`) returns clean structured rows; `PageContent.structured_data` carries parsed JSON-LD and `meta` includes OpenGraph/microdata price tags (`core/page_parser.py`); and **`get_html`** / **`get_accessibility_tree`** (ARIA snapshot) are full-fidelity fallbacks. All exposed over REST (`/extract`, `/html`, `/accessibility`) and MCP.
+
 ## Adding a New Action
 
 A new action (e.g., `hover`) touches four files in order:
@@ -143,6 +145,11 @@ All settings via env vars prefixed `WC_` (defined in `config.py`):
 | `WC_SCROLL_TO_LOAD_DEFAULT` | false | Auto-scroll on every navigate to trigger lazy content |
 | `WC_SCROLL_STEPS` | 8 | Scroll steps when scroll_to_load is on |
 | `WC_SCROLL_DELAY_MS` | 250 | Pause between scroll steps |
+| `WC_MAX_EXTRACT_ROWS` | 100 | Ceiling on rows returned by the extract action |
+| `WC_EXTRACT_MAX_FIELD_CHARS` | 2000 | Per-field value cap in the extract action |
+| `WC_STRUCTURED_DATA_MAX_BLOBS` | 10 | Max JSON-LD scripts parsed per page |
+| `WC_STRUCTURED_DATA_MAX_CHARS` | 20000 | Skip JSON-LD scripts larger than this |
+| `WC_HTML_MAX_CHARS` | 500000 | Cap for get_html() raw page source |
 | `WC_SEARCH_TIER_ENABLED` | false | Enable Tier S search index (needs `WC_SEARCH_API_KEY`) |
 | `WC_SEARCH_PROVIDER` | exa | Search provider (exa/brave) |
 | `WC_SEARCH_API_KEY` | _(empty)_ | API key for the search provider |

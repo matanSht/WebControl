@@ -34,6 +34,7 @@ class PageParser:
             text_content = await self._extract_text(page)
             title = await page.title()
             meta = await self._extract_meta(page)
+            structured_data = await self._extract_structured_data(page)
 
             session.ref_map = ref_map
 
@@ -50,6 +51,7 @@ class PageParser:
             forms=forms,
             links=links,
             meta=meta,
+            structured_data=structured_data,
             timestamp=datetime.now(UTC),
         )
 
@@ -243,15 +245,58 @@ class PageParser:
             return await page.evaluate(
                 """() => {
                     const meta = {};
-                    const desc = document.querySelector('meta[name="description"]');
-                    if (desc) meta.description = desc.content;
-                    const ogTitle = document.querySelector('meta[property="og:title"]');
-                    if (ogTitle) meta['og:title'] = ogTitle.content;
+                    const grab = (sel, key) => {
+                        const el = document.querySelector(sel);
+                        if (el && el.content) meta[key] = el.content;
+                    };
+                    grab('meta[name="description"]', 'description');
+                    grab('meta[property="og:title"]', 'og:title');
+                    grab('meta[property="og:description"]', 'og:description');
+                    grab('meta[property="og:type"]', 'og:type');
+                    grab('meta[property="og:price:amount"]', 'og:price:amount');
+                    grab('meta[property="og:price:currency"]', 'og:price:currency');
+                    grab('meta[property="product:price:amount"]', 'product:price:amount');
+                    grab('meta[property="product:price:currency"]', 'product:price:currency');
+                    // Microdata expressed as meta tags (e.g. <meta itemprop="price" content="9.99">).
+                    document.querySelectorAll('meta[itemprop][content]').forEach((m) => {
+                        const k = 'itemprop:' + m.getAttribute('itemprop');
+                        if (!(k in meta)) meta[k] = m.getAttribute('content');
+                    });
                     return meta;
                 }"""
             )
         except Exception:
             return {}
+
+    async def _extract_structured_data(self, page: Page) -> list:
+        """Collect and parse JSON-LD blobs — clean Product/Offer data many
+        e-commerce pages embed even when the visible DOM is hard to scrape."""
+        try:
+            return await page.evaluate(
+                """({ maxBlobs, maxChars }) => {
+                    const out = [];
+                    const nodes = document.querySelectorAll(
+                        'script[type="application/ld+json"]'
+                    );
+                    for (const n of nodes) {
+                        if (out.length >= maxBlobs) break;
+                        const raw = n.textContent || '';
+                        if (!raw || raw.length > maxChars) continue;
+                        try {
+                            out.push(JSON.parse(raw));
+                        } catch (e) {
+                            /* skip malformed JSON-LD */
+                        }
+                    }
+                    return out;
+                }""",
+                {
+                    "maxBlobs": self._settings.structured_data_max_blobs,
+                    "maxChars": self._settings.structured_data_max_chars,
+                },
+            )
+        except Exception:
+            return []
 
 
 class _RefCounter:

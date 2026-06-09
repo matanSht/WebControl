@@ -47,3 +47,21 @@ class SubmitRequest(BaseModel):
 class ExecuteJsRequest(BaseModel):
     script: str
     args: list[Any] = []
+
+
+class ExtractField(BaseModel):
+    # Output key for this field in each extracted row.
+    name: str
+    # CSS selector relative to the row element; None reads the row itself.
+    selector: str | None = None
+    # Attribute to read (e.g. "href", "content"); None reads text content.
+    attribute: str | None = None
+
+
+class ExtractRequest(BaseModel):
+    # CSS selector matching each repeated row (e.g. ".s-result-item").
+    selector: str
+    # Fields to pull from each matched row.
+    fields: list[ExtractField]
+    # Max rows to return (capped by WC_MAX_EXTRACT_ROWS).
+    limit: int = 50

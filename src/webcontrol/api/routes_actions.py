@@ -5,13 +5,20 @@ from webcontrol.core.service import WebControlService
 from webcontrol.models.actions import (
     ClickRequest,
     ExecuteJsRequest,
+    ExtractRequest,
     FillRequest,
     NavigateRequest,
     SelectRequest,
     SubmitRequest,
 )
 from webcontrol.models.page import PageContent
-from webcontrol.models.responses import ActionResult, ScreenshotResult
+from webcontrol.models.responses import (
+    AccessibilityResult,
+    ActionResult,
+    ExtractResult,
+    HtmlResult,
+    ScreenshotResult,
+)
 
 router = APIRouter(prefix="/sessions/{session_id}", tags=["actions"])
 
@@ -76,6 +83,31 @@ async def execute_js(
     service: WebControlService = Depends(get_service),
 ) -> ActionResult:
     return await service.execute_js(session_id, body)
+
+
+@router.post("/extract", response_model=ExtractResult)
+async def extract(
+    session_id: str,
+    body: ExtractRequest,
+    service: WebControlService = Depends(get_service),
+) -> ExtractResult:
+    return await service.extract(session_id, body)
+
+
+@router.get("/html", response_model=HtmlResult)
+async def get_html(
+    session_id: str,
+    service: WebControlService = Depends(get_service),
+) -> HtmlResult:
+    return await service.get_html(session_id)
+
+
+@router.get("/accessibility", response_model=AccessibilityResult)
+async def get_accessibility_tree(
+    session_id: str,
+    service: WebControlService = Depends(get_service),
+) -> AccessibilityResult:
+    return await service.get_accessibility_tree(session_id)
 
 
 @router.get("/screenshot", response_model=ScreenshotResult)

@@ -4,6 +4,8 @@ from webcontrol.core.service import WebControlService
 from webcontrol.models.actions import (
     ClickRequest,
     ExecuteJsRequest,
+    ExtractField,
+    ExtractRequest,
     FillRequest,
     NavigateRequest,
     SelectRequest,
@@ -131,6 +133,62 @@ def create_mcp_server(get_service: callable) -> FastMCP:
         """Submit a form by its ref ID (form element or submit button). Returns updated page content."""
         service: WebControlService = get_service()
         result = await service.submit(session_id, SubmitRequest(ref=ref))
+        return result.model_dump(mode="json")
+
+    @mcp.tool()
+    async def extract(
+        session_id: str,
+        selector: str,
+        fields: list[dict],
+        limit: int = 50,
+    ) -> dict:
+        """Extract structured rows from the page via CSS selectors.
+
+        The reliable way to pull repeated data (prices, titles, ratings) that the
+        page snapshot truncates or misses — it reads exactly the fields you ask
+        for from every matching row, bypassing the text-dump truncation.
+
+        `selector` matches each row (e.g. ".s-result-item"). `fields` is a list of
+        objects, each with:
+          - name: output key for the value
+          - selector (optional): CSS relative to the row; omit to use the row itself
+          - attribute (optional): attribute to read (e.g. "href", "content"); omit for text
+
+        Example: selector=".s-result-item", fields=[
+            {"name": "title", "selector": "h2"},
+            {"name": "price", "selector": ".a-offscreen"},
+            {"name": "url", "selector": "a", "attribute": "href"}
+        ]
+        Returns {selector, count, rows}.
+        """
+        service: WebControlService = get_service()
+        result = await service.extract(
+            session_id,
+            ExtractRequest(
+                selector=selector,
+                fields=[ExtractField(**f) for f in fields],
+                limit=limit,
+            ),
+        )
+        return result.model_dump(mode="json")
+
+    @mcp.tool()
+    async def get_html(session_id: str) -> dict:
+        """Get the full rendered HTML of the current page (truncated to a configured
+        cap). Full-fidelity fallback for when the curated page content misses
+        JS-rendered data. Returns {url, html, truncated}."""
+        service: WebControlService = get_service()
+        result = await service.get_html(session_id)
+        return result.model_dump(mode="json")
+
+    @mcp.tool()
+    async def get_accessibility_tree(session_id: str) -> dict:
+        """Get the page's ARIA snapshot (accessibility tree as YAML). An
+        alternative full-fidelity view of the page's semantic structure (roles,
+        names, hierarchy) when the curated content snapshot misses something.
+        Returns {url, snapshot}."""
+        service: WebControlService = get_service()
+        result = await service.get_accessibility_tree(session_id)
         return result.model_dump(mode="json")
 
     @mcp.tool()

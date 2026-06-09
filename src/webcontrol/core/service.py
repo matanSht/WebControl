@@ -11,13 +11,20 @@ from webcontrol.core.session_manager import SessionManager
 from webcontrol.models.actions import (
     ClickRequest,
     ExecuteJsRequest,
+    ExtractRequest,
     FillRequest,
     NavigateRequest,
     SelectRequest,
     SubmitRequest,
 )
 from webcontrol.models.page import PageContent
-from webcontrol.models.responses import ActionResult, ScreenshotResult
+from webcontrol.models.responses import (
+    AccessibilityResult,
+    ActionResult,
+    ExtractResult,
+    HtmlResult,
+    ScreenshotResult,
+)
 from webcontrol.models.search import SearchRequest, SearchResult
 from webcontrol.models.session import SessionCreate, SessionInfo
 
@@ -136,6 +143,24 @@ class WebControlService:
         async with session.lock:
             self._session_manager.touch_session(session)
             return await self._executor.execute_js(session, req)
+
+    async def extract(self, session_id: str, req: ExtractRequest) -> ExtractResult:
+        session = self._session_manager.get_session(session_id)
+        async with session.lock:
+            self._session_manager.touch_session(session)
+            return await self._executor.extract(session, req)
+
+    async def get_html(self, session_id: str) -> HtmlResult:
+        session = self._session_manager.get_session(session_id)
+        async with session.lock:
+            self._session_manager.touch_session(session)
+            return await self._executor.get_html(session)
+
+    async def get_accessibility_tree(self, session_id: str) -> AccessibilityResult:
+        session = self._session_manager.get_session(session_id)
+        async with session.lock:
+            self._session_manager.touch_session(session)
+            return await self._executor.get_accessibility_tree(session)
 
     async def screenshot(self, session_id: str) -> ScreenshotResult:
         session = self._session_manager.get_session(session_id)

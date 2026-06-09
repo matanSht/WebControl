@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from webcontrol.models.page import PageContent
 from webcontrol.models.search import SearchResult
 
@@ -23,4 +25,35 @@ class ActionResult(BaseModel):
 class ScreenshotResult(BaseModel):
     success: bool
     screenshot_base64: str | None = None
+    error: str | None = None
+
+
+class ExtractResult(BaseModel):
+    success: bool
+    selector: str
+    count: int
+    # One dict per matched row; values are strings (or null when a field's
+    # target/attribute was absent).
+    rows: list[dict[str, str | None]] = []
+    timestamp: datetime
+    error: str | None = None
+
+
+class HtmlResult(BaseModel):
+    success: bool
+    url: str
+    html: str
+    # True when the HTML was truncated to WC_HTML_MAX_CHARS.
+    truncated: bool = False
+    timestamp: datetime
+    error: str | None = None
+
+
+class AccessibilityResult(BaseModel):
+    success: bool
+    url: str
+    # ARIA snapshot (YAML) of the page's accessibility tree — the semantic
+    # structure (roles, names, hierarchy) as Playwright sees it.
+    snapshot: str | None = None
+    timestamp: datetime
     error: str | None = None

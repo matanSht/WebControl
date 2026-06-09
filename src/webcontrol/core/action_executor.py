@@ -1,5 +1,6 @@
 import base64
 import logging
+from datetime import UTC, datetime
 
 from playwright.async_api import Error as PlaywrightError
 
@@ -12,13 +13,20 @@ from webcontrol.core.session_manager import BrowserSession
 from webcontrol.models.actions import (
     ClickRequest,
     ExecuteJsRequest,
+    ExtractRequest,
     FillRequest,
     NavigateRequest,
     SelectRequest,
     SubmitRequest,
 )
 from webcontrol.models.page import PageContent
-from webcontrol.models.responses import ActionResult, ScreenshotResult
+from webcontrol.models.responses import (
+    AccessibilityResult,
+    ActionResult,
+    ExtractResult,
+    HtmlResult,
+    ScreenshotResult,
+)
 from webcontrol.observability.timing import Timer
 
 logger = logging.getLogger("webcontrol.actions")
@@ -192,6 +200,115 @@ class ActionExecutor:
             len(content.elements), len(content.forms), len(content.links), t.elapsed_ms,
         )
         return content
+
+    async def extract(self, session: BrowserSession, req: ExtractRequest) -> ExtractResult:
+        """Pull structured rows from the page via CSS selectors.
+
+        Unlike the parsed PageContent (which truncates body text and caps element
+        counts), this reads exactly the fields asked for from every matching row
+        — the reliable path for repeated data like prices, titles, and ratings on
+        search-result and catalog pages.
+        """
+        limit = min(req.limit, self._settings.max_extract_rows)
+        with Timer() as t:
+            try:
+                rows = await session.page.eval_on_selector_all(
+                    req.selector,
+                    """(elements, { fields, limit, maxChars }) =>
+                        elements.slice(0, limit).map((el) => {
+                            const row = {};
+                            for (const f of fields) {
+                                const target = f.selector ? el.querySelector(f.selector) : el;
+                                if (!target) {
+                                    row[f.name] = null;
+                                    continue;
+                                }
+                                let val = f.attribute
+                                    ? target.getAttribute(f.attribute)
+                                    : (target.textContent || '').replace(/\\s+/g, ' ').trim();
+                                if (val != null && val.length > maxChars) {
+                                    val = val.slice(0, maxChars);
+                                }
+                                row[f.name] = val;
+                            }
+                            return row;
+                        })""",
+                    {
+                        "fields": [f.model_dump() for f in req.fields],
+                        "limit": limit,
+                        "maxChars": self._settings.extract_max_field_chars,
+                    },
+                )
+            except PlaywrightError as e:
+                session.activity.record(
+                    action="extract", duration_ms=t.elapsed_ms, success=False, error=str(e)[:200]
+                )
+                raise ActionError(f"Extract failed for selector '{req.selector}': {e}") from e
+
+        session.activity.record(action="extract", duration_ms=t.elapsed_ms, success=True)
+        logger.debug(
+            "extract selector=%s rows=%d duration_ms=%.1f",
+            req.selector, len(rows), t.elapsed_ms,
+        )
+        return ExtractResult(
+            success=True,
+            selector=req.selector,
+            count=len(rows),
+            rows=rows,
+            timestamp=datetime.now(UTC),
+        )
+
+    async def get_html(self, session: BrowserSession) -> HtmlResult:
+        """Return the full rendered HTML — the full-fidelity fallback for when
+        the curated PageContent misses something."""
+        with Timer() as t:
+            try:
+                html = await session.page.content()
+            except PlaywrightError as e:
+                session.activity.record(
+                    action="get_html", duration_ms=t.elapsed_ms, success=False, error=str(e)[:200]
+                )
+                raise ActionError(f"Get HTML failed: {e}") from e
+            cap = self._settings.html_max_chars
+            truncated = len(html) > cap
+            if truncated:
+                html = html[:cap]
+
+        session.activity.record(action="get_html", duration_ms=t.elapsed_ms, success=True)
+        logger.debug(
+            "get_html chars=%d truncated=%s duration_ms=%.1f", len(html), truncated, t.elapsed_ms
+        )
+        return HtmlResult(
+            success=True,
+            url=session.page.url,
+            html=html,
+            truncated=truncated,
+            timestamp=datetime.now(UTC),
+        )
+
+    async def get_accessibility_tree(self, session: BrowserSession) -> AccessibilityResult:
+        """Return the page's ARIA snapshot — the real accessibility tree as YAML,
+        a full-fidelity alternative view when the curated snapshot misses content."""
+        with Timer() as t:
+            try:
+                snapshot = await session.page.locator("body").aria_snapshot()
+            except PlaywrightError as e:
+                session.activity.record(
+                    action="get_accessibility_tree",
+                    duration_ms=t.elapsed_ms, success=False, error=str(e)[:200],
+                )
+                raise ActionError(f"Accessibility snapshot failed: {e}") from e
+
+        session.activity.record(
+            action="get_accessibility_tree", duration_ms=t.elapsed_ms, success=True
+        )
+        logger.debug("get_accessibility_tree duration_ms=%.1f", t.elapsed_ms)
+        return AccessibilityResult(
+            success=True,
+            url=session.page.url,
+            snapshot=snapshot,
+            timestamp=datetime.now(UTC),
+        )
 
     async def screenshot(self, session: BrowserSession) -> ScreenshotResult:
         with Timer() as t:

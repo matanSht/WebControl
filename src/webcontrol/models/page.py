@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -36,4 +37,8 @@ class PageContent(BaseModel):
     forms: list[FormField]
     links: list[LinkInfo]
     meta: dict[str, str] = {}
+    # Parsed JSON-LD blobs (<script type="application/ld+json">) — e-commerce
+    # pages embed clean Product/Offer price + rating data here even when the
+    # visible DOM is messy. See core/page_parser.py.
+    structured_data: list[Any] = []
     timestamp: datetime

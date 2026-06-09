@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     scroll_steps: int = 8  # number of scroll steps when scroll_to_load is on
     scroll_delay_ms: int = 250  # pause between scroll steps
 
+    # Targeted extraction + structured data — the "accuracy" path: pull exact
+    # values via CSS selectors or page metadata instead of mining the text dump.
+    # See core/action_executor.extract and core/page_parser._extract_structured_data.
+    max_extract_rows: int = 100  # ceiling on rows returned by extract()
+    extract_max_field_chars: int = 2000  # per-field value cap in extract()
+    structured_data_max_blobs: int = 10  # max JSON-LD scripts parsed per page
+    structured_data_max_chars: int = 20000  # skip JSON-LD scripts larger than this
+    html_max_chars: int = 500000  # cap for get_html() raw page source
+
     # Retry settings
     navigation_retries: int = 2
     action_retries: int = 1
