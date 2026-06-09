@@ -1,6 +1,6 @@
 # Observability
 
-WebControl provides five layers of observability for debugging, performance analysis, and troubleshooting.
+WebControl provides six layers of observability for debugging, performance analysis, and troubleshooting.
 
 ## 1. Request Logging
 
@@ -205,6 +205,62 @@ The trace shows:
 
 Tracing adds overhead (~10-20% slower actions due to snapshot capture). Only enable it for debugging, not production use.
 
+## 6. Network Capture
+
+Record the raw XHR/fetch responses a page fetches, so an agent (or you) can read the JSON behind JS-rendered data instead of scraping the DOM. **Disabled per session until enabled.** When on, a `page.on("response")` listener (`observability/network.py`) records responses matching the filters into a bounded ring buffer; bodies are read on background tasks, and a read first drains in-flight reads so the snapshot is complete.
+
+Capture survives proxy-tier context rebuilds (the listener is re-attached). Filtering is cheap-first: a disabled or non-matching response never spawns a body read.
+
+### Enable, Read, Clear
+
+**REST:**
+
+```bash
+# Start (enable BEFORE navigating). json_only=true keeps only JSON responses.
+curl -X POST http://localhost:8080/api/v1/sessions/{id}/network-capture \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "url_filter": "/api/", "json_only": true}'
+
+# ... navigate / interact ...
+
+# Read captured responses (most recent last)
+curl "http://localhost:8080/api/v1/sessions/{id}/network-capture?limit=20"
+
+# Stop / clear
+curl -X POST http://localhost:8080/api/v1/sessions/{id}/network-capture -d '{"enabled": false}'
+curl -X DELETE http://localhost:8080/api/v1/sessions/{id}/network-capture
+```
+
+**MCP tools:**
+
+```
+configure_network_capture(session_id, enabled=true, url_filter="/api/", json_only=true)
+get_network_capture(session_id, limit=50, url_filter=None)
+clear_network_capture(session_id)
+```
+
+### Captured Response Format
+
+```json
+{
+  "timestamp": "2025-01-15T10:32:00Z",
+  "url": "https://site/api/price",
+  "status": 200,
+  "method": "GET",
+  "resource_type": "fetch",
+  "content_type": "application/json",
+  "body": {"price": "12.99", "currency": "USD"}
+}
+```
+
+`body` is parsed JSON when possible, otherwise capped text. Bound the buffer and bodies with `WC_NETWORK_CAPTURE_MAX_ENTRIES` (default 50) and `WC_NETWORK_CAPTURE_MAX_BODY_CHARS` (default 100000).
+
+### When to Use
+
+- The data you want renders via XHR/fetch and isn't in the DOM snapshot (or is truncated).
+- You want the source values (exact price/currency/stock) rather than formatted display text.
+- You're reverse-engineering a site's internal API to read data directly.
+
 ---
 
 ## Logger Hierarchy
@@ -214,6 +270,8 @@ Tracing adds overhead (~10-20% slower actions due to snapshot capture). Only ena
 | `webcontrol.http` | INFO | Every HTTP request with method, path, status, duration |
 | `webcontrol.sessions` | INFO | Session create, close, expire events |
 | `webcontrol.actions` | INFO/DEBUG | Action execution with timing and element counts |
+| `webcontrol.escalation` | INFO | Per-tier navigation attempts (`navigate tier=… blocked=…`) |
+| `webcontrol.settle` | DEBUG | Content-settle steps (selector wait, scroll, networkidle, DOM stability) |
 | `webcontrol.parser` | DEBUG | Page parse duration and element/form/link counts |
 | `webcontrol.retry` | WARNING/ERROR | Retry attempts and final failures |
 

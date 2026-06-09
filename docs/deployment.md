@@ -144,6 +144,11 @@ Each browser session consumes approximately:
 - 4 GB RAM → ~20 concurrent sessions
 - Set `WC_MAX_SESSIONS` to match your available memory
 
+**Network capture** (opt-in per session) buffers response bodies in memory —
+bounded by `WC_NETWORK_CAPTURE_MAX_ENTRIES` (default 50) ×
+`WC_NETWORK_CAPTURE_MAX_BODY_CHARS` (default 100000), so ~5 MB worst-case per
+capturing session. Lower either for memory-constrained deployments.
+
 ---
 
 ## Security Considerations

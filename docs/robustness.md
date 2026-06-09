@@ -75,6 +75,29 @@ Each tier attempt is also recorded in the session activity log as
 `escalate=false` disables the ladder entirely — a block at the direct tier raises
 immediately.
 
+## Content settling
+
+A page can return HTTP 200 (not blocked) yet still be missing its real content:
+prices, listings, and ratings often arrive via XHR/fetch *after* `goto()`
+returns. Reading the DOM immediately would snapshot an empty shell. So before
+the parser runs, every navigation attempt goes through a bounded **settle** step
+(`core/page_settle.py`):
+
+1. `wait_for_selector` (optional) — wait until a caller-supplied CSS selector is
+   visible (e.g. `.a-price`).
+2. `scroll_to_load` (optional) — scroll top-to-bottom in steps to fire lazy /
+   on-scroll / IntersectionObserver loaders.
+3. `networkidle` — wait for the network to go quiet (bounded by
+   `WC_SETTLE_TIMEOUT_MS`).
+4. **DOM-stability poll** — sample `document.body` size until it stops growing
+   (`WC_DOM_STABLE_POLLS` consecutive equal reads), so async content has landed.
+
+Every step is best-effort and swallows timeouts — settling only ever delays the
+snapshot until content is ready, it never fails a navigation. Toggle the whole
+step with `WC_PAGE_SETTLE_ENABLED`. For data that still doesn't reach the parsed
+`PageContent`, see the accurate-extraction tools (`extract`, `structured_data`,
+network capture) in the [integration guide](integration-guide.md#accurate-extraction).
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -87,6 +110,11 @@ immediately.
 | `WC_BEHAVIORAL_JITTER_MS` | `800` | Max random pre-retry delay (tier 1). |
 | `WC_PROXY_SERVER` | _(empty)_ | Enables the proxy tier (tier 2) when set. |
 | `WC_SEARCH_TIER_ENABLED` | `false` | Enable Tier S (also needs `WC_SEARCH_API_KEY`). |
+| `WC_PAGE_SETTLE_ENABLED` | `true` | Wait for async content before parsing (content settling). |
+| `WC_SETTLE_TIMEOUT_MS` | `4000` | Ceiling for networkidle + `wait_for_selector`. |
+| `WC_DOM_STABLE_POLLS` | `2` | Consecutive equal DOM-size reads required to consider the page settled. |
+| `WC_DOM_STABLE_INTERVAL_MS` | `300` | Gap between DOM-stability polls. |
+| `WC_SCROLL_TO_LOAD_DEFAULT` | `false` | Auto-scroll on every navigate (default for `scroll_to_load`). |
 
 ### Stealth (tier 0)
 

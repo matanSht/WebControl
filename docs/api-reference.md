@@ -104,6 +104,10 @@ POST /sessions/{session_id}/navigate
 | `wait_until` | string | no | `"domcontentloaded"` | Wait condition: `"load"`, `"domcontentloaded"`, `"networkidle"` |
 | `escalate` | bool | no | `true` | Auto-escalate through robustness tiers if the page is blocked |
 | `fallback_to_search` | bool | no | `false` | If all browser tiers are blocked, return read-only search-index results instead of a `409` (requires Tier S configured) |
+| `wait_for_selector` | string \| null | no | null | Wait until this CSS selector is visible before snapshotting — for content rendered by JS after load (e.g. `.a-price`) |
+| `scroll_to_load` | bool \| null | no | null | Auto-scroll the page to trigger lazy / on-scroll content before snapshotting. `null` uses `WC_SCROLL_TO_LOAD_DEFAULT` |
+
+Before parsing, `navigate` runs a bounded **settle** step (networkidle + a DOM-stability poll, plus the optional `wait_for_selector` / `scroll_to_load` above) so JS/async-rendered content lands before the snapshot. See [robustness.md](robustness.md#content-settling).
 
 **Response (200):**
 
@@ -163,6 +167,7 @@ Returns the current page state without performing any action. Useful for re-read
     {"ref": "e2", "text": "More information...", "href": "https://www.iana.org/domains/example"}
   ],
   "meta": {"description": "..."},
+  "structured_data": [],
   "timestamp": "2025-01-15T10:32:00Z"
 }
 ```
@@ -288,6 +293,183 @@ Run arbitrary JavaScript on the page.
 
 ---
 
+## Accurate Extraction
+
+For data rendered by JavaScript (prices, listings, ratings) that the curated `PageContent` truncates or misses, these endpoints read exact values instead of mining the body-text dump. See [integration-guide.md](integration-guide.md#accurate-extraction).
+
+### Extract Structured Rows
+
+```
+POST /sessions/{session_id}/extract
+```
+
+Pull repeated rows from the page via CSS selectors — backed by `eval_on_selector_all`, so it bypasses the text/element caps entirely.
+
+**Request body:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `selector` | string | yes | — | CSS selector matching each row (e.g. `.s-result-item`) |
+| `fields` | array | yes | — | Fields to pull from each row (see below) |
+| `limit` | int | no | `50` | Max rows (capped by `WC_MAX_EXTRACT_ROWS`) |
+
+Each entry in `fields`:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `name` | string | yes | — | Output key for the value |
+| `selector` | string \| null | no | null | CSS selector relative to the row; omit to use the row element itself |
+| `attribute` | string \| null | no | null | Attribute to read (e.g. `href`, `content`); omit to read text content |
+
+**Example request:**
+
+```json
+{
+  "selector": ".s-result-item",
+  "fields": [
+    {"name": "title", "selector": "h2"},
+    {"name": "price", "selector": ".a-offscreen"},
+    {"name": "url", "selector": "a", "attribute": "href"}
+  ]
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "selector": ".s-result-item",
+  "count": 2,
+  "rows": [
+    {"title": "Case A", "price": "$12.99", "url": "https://..."},
+    {"title": "Case B", "price": "$9.50", "url": "https://..."}
+  ],
+  "timestamp": "2025-01-15T10:32:00Z"
+}
+```
+
+A missing field target/attribute yields `null` for that field; no matched rows yields `count: 0` and `rows: []` (never an error).
+
+**Errors:**
+- `404` — Session not found
+- `422` — Invalid selector / evaluation error
+
+---
+
+### Get Rendered HTML
+
+```
+GET /sessions/{session_id}/html
+```
+
+Full-fidelity fallback: the page's rendered HTML source, truncated to `WC_HTML_MAX_CHARS`.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "url": "https://example.com/",
+  "html": "<!DOCTYPE html><html>...</html>",
+  "truncated": false,
+  "timestamp": "2025-01-15T10:32:00Z"
+}
+```
+
+---
+
+### Get Accessibility Tree
+
+```
+GET /sessions/{session_id}/accessibility
+```
+
+The page's ARIA snapshot (Playwright `aria_snapshot`) as YAML — the semantic structure (roles, names, hierarchy), an alternative full-fidelity view.
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "url": "https://example.com/",
+  "snapshot": "- heading \"Example Domain\" [level=1]\n- paragraph: ...\n- link \"More information...\"",
+  "timestamp": "2025-01-15T10:32:00Z"
+}
+```
+
+---
+
+## Network Capture
+
+Record the raw XHR/fetch responses a page fetches, so an agent can read the JSON behind JS-rendered data directly. **Disabled per session until enabled.** A `page.on("response")` listener records matching responses into a bounded ring buffer. See [observability.md](observability.md#6-network-capture).
+
+### Configure (start / stop)
+
+```
+POST /sessions/{session_id}/network-capture
+```
+
+**Request body:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `enabled` | bool | no | `true` | Start (`true`) or stop (`false`) capturing |
+| `url_filter` | string \| null | no | null | Only capture responses whose URL contains this substring |
+| `json_only` | bool | no | `true` | Only capture JSON responses; `false` captures all |
+
+Enable **before** navigating/interacting so the responses are captured as they fire.
+
+**Response (200):**
+
+```json
+{"success": true, "enabled": true, "url_filter": "/api/", "json_only": true}
+```
+
+### Read
+
+```
+GET /sessions/{session_id}/network-capture?limit=50&url_filter=
+```
+
+| Query param | Type | Default | Description |
+|-------------|------|---------|-------------|
+| `limit` | int | `50` | Max responses to return (most recent last) |
+| `url_filter` | string \| null | null | Further narrow returned responses by URL substring |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "count": 1,
+  "responses": [
+    {
+      "timestamp": "2025-01-15T10:32:00Z",
+      "url": "https://site/api/price",
+      "status": 200,
+      "method": "GET",
+      "resource_type": "fetch",
+      "content_type": "application/json",
+      "body": {"price": "12.99", "currency": "USD"}
+    }
+  ],
+  "timestamp": "2025-01-15T10:32:00Z"
+}
+```
+
+`body` is parsed JSON when possible, otherwise capped text (`WC_NETWORK_CAPTURE_MAX_BODY_CHARS`).
+
+### Clear
+
+```
+DELETE /sessions/{session_id}/network-capture
+```
+
+**Response:** `204 No Content`
+
+---
+
 ## Search (Tier S)
 
 ```
@@ -365,7 +547,7 @@ The `page_content` object returned by actions:
 {
   "url": "string — current page URL",
   "title": "string — page title",
-  "text_content": "string — visible body text, max ~4000 chars",
+  "text_content": "string — visible body text, capped at WC_MAX_TEXT_CONTENT_CHARS (default 8000)",
   "elements": [
     {
       "ref": "e1",
@@ -401,8 +583,22 @@ The `page_content` object returned by actions:
     }
   ],
   "meta": {
-    "description": "page meta description"
+    "description": "page meta description",
+    "og:title": "OpenGraph title",
+    "og:price:amount": "12.99",
+    "product:price:amount": "12.99",
+    "itemprop:price": "12.99"
   },
+  "structured_data": [
+    {
+      "@type": "Product",
+      "name": "Widget",
+      "offers": {"@type": "Offer", "price": "12.99", "priceCurrency": "USD"}
+    }
+  ],
   "timestamp": "2025-01-15T10:32:00Z"
 }
 ```
+
+- `meta` — page metadata: description, OpenGraph (`og:*`), product price tags (`product:price:*`), and microdata expressed as meta tags (`itemprop:*`). Only keys present on the page appear.
+- `structured_data` — parsed JSON-LD blobs (`<script type="application/ld+json">`); e-commerce pages embed clean Product/Offer price and rating data here. Capped by `WC_STRUCTURED_DATA_MAX_BLOBS` / `WC_STRUCTURED_DATA_MAX_CHARS`.

@@ -73,9 +73,13 @@ Single entry point composing all core components. Owns:
 | Component | File | Responsibility |
 |-----------|------|----------------|
 | `BrowserManager` | `core/browser_manager.py` | Owns the single Playwright `Browser` instance. Launches on startup, closes on shutdown. |
-| `SessionManager` | `core/session_manager.py` | CRUD for `BrowserSession` objects. Background TTL cleanup. Proxy configuration. |
-| `PageParser` | `core/page_parser.py` | Queries the DOM for interactive elements, forms, and links. Assigns refs. Builds `PageContent`. |
-| `ActionExecutor` | `core/action_executor.py` | Resolves refs to Playwright Locators. Executes actions with retry. Returns fresh `PageContent`. |
+| `SessionManager` | `core/session_manager.py` | CRUD for `BrowserSession` objects. Background TTL cleanup. Proxy configuration. Attaches the per-session network-capture listener. |
+| `NavigationEscalator` | `core/navigation_escalation.py` | Runs `navigate()` through the robustness tier ladder with block detection; builds settle options per request. |
+| `PageSettle` | `core/page_settle.py` | Bounded wait for async/JS-rendered content before a snapshot (selector wait, scroll, networkidle, DOM-stability poll). |
+| `PageParser` | `core/page_parser.py` | Queries the DOM for interactive elements, forms, and links. Assigns refs. Harvests JSON-LD + OpenGraph/microdata. Builds `PageContent`. |
+| `ActionExecutor` | `core/action_executor.py` | Resolves refs to Playwright Locators. Executes actions with retry. Returns fresh `PageContent`. Also: targeted `extract`, `get_html`, `get_accessibility_tree`. |
+| `NetworkCapture` | `observability/network.py` | Per-session ring buffer of captured XHR/fetch responses (opt-in), for reading raw API payloads. |
+| `SearchTier` | `core/search_tier.py` | Tier S: read-only results from a search provider's pre-crawled index (no origin contact). |
 
 ## Key Design Decisions
 

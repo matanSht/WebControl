@@ -85,6 +85,8 @@ Navigate to a URL and return the page content with interactive element refs.
 | `url` | string | yes | — | URL to navigate to |
 | `wait_until` | string | no | `"domcontentloaded"` | Wait condition |
 | `fallback_to_search` | bool | no | `false` | If all browser tiers are blocked, return read-only search-index results instead of an error |
+| `wait_for_selector` | string | no | null | Wait until this CSS selector is visible before snapshotting — for JS-rendered content (e.g. `.a-price`) |
+| `scroll_to_load` | bool | no | null | Auto-scroll to trigger lazy / on-scroll content before snapshotting |
 
 **Returns:** `ActionResult` with `page_content` plus robustness metadata: `blocked`
 (true if an anti-bot wall was detected), `tier_used` (`direct` / `behavioral` /
@@ -92,6 +94,10 @@ Navigate to a URL and return the page content with interactive element refs.
 it fell back to Tier S). If every browser tier is blocked and
 `fallback_to_search` is false, the tool reports a Blocked error recommending the
 `search` tool. See [robustness.md](robustness.md).
+
+For JS/async-rendered pages, `wait_for_selector` and `scroll_to_load` make
+content land before the snapshot; `page_content` also includes `structured_data`
+(parsed JSON-LD) and OpenGraph/microdata price tags in `meta`.
 
 ---
 
@@ -188,6 +194,98 @@ Execute JavaScript code on the current page.
 
 ---
 
+### extract
+
+Pull structured rows from the page via CSS selectors — the reliable way to get repeated data (prices, titles, ratings) that the page snapshot truncates or misses. Backed by `eval_on_selector_all`, so it bypasses the text/element caps.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `session_id` | string | yes | — | Target session |
+| `selector` | string | yes | — | CSS selector matching each row (e.g. `.s-result-item`) |
+| `fields` | array | yes | — | List of `{name, selector?, attribute?}` objects pulled from each row |
+| `limit` | int | no | `50` | Max rows (capped by `WC_MAX_EXTRACT_ROWS`) |
+
+Each field: `name` (output key), `selector` (CSS relative to the row; omit for the row itself), `attribute` (e.g. `href`, `content`; omit for text).
+
+**Example:**
+
+```
+extract(session_id, selector=".s-result-item", fields=[
+  {"name": "title", "selector": "h2"},
+  {"name": "price", "selector": ".a-offscreen"},
+  {"name": "url", "selector": "a", "attribute": "href"}
+])
+```
+
+**Returns:** `{selector, count, rows}` — one dict per row; missing target/attribute → `null`; no matches → empty.
+
+---
+
+### get_html
+
+Get the full rendered HTML of the current page (truncated to `WC_HTML_MAX_CHARS`). Full-fidelity fallback when the curated content misses JS-rendered data.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | yes | Target session |
+
+**Returns:** `{url, html, truncated}`.
+
+---
+
+### get_accessibility_tree
+
+Get the page's ARIA snapshot (accessibility tree as YAML) — roles, names, and hierarchy. An alternative full-fidelity view when the curated content snapshot misses something.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | yes | Target session |
+
+**Returns:** `{url, snapshot}`.
+
+---
+
+### configure_network_capture
+
+Start or stop capturing the page's XHR/fetch responses — the deepest extraction lever, recording the raw API JSON behind JS-rendered prices/listings. **Enable before navigating/interacting.**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `session_id` | string | yes | — | Target session |
+| `enabled` | bool | no | `true` | Start (`true`) or stop (`false`) capturing |
+| `url_filter` | string | no | null | Only capture responses whose URL contains this substring |
+| `json_only` | bool | no | `true` | Only capture JSON responses; `false` captures all |
+
+**Returns:** `{enabled, url_filter, json_only}`.
+
+---
+
+### get_network_capture
+
+Get the XHR/fetch responses captured for a session (most recent last). Requires capture to have been enabled before the page loaded.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `session_id` | string | yes | — | Target session |
+| `limit` | int | no | `50` | Max responses to return |
+| `url_filter` | string | no | null | Further narrow returned responses by URL substring |
+
+**Returns:** `{count, responses}` — each with `url`, `status`, `method`, `resource_type`, `content_type`, and `body` (parsed JSON or capped text).
+
+---
+
+### clear_network_capture
+
+Clear the captured responses for a session.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | yes | Target session |
+
+**Returns:** Confirmation with session ID.
+
+---
+
 ### search
 
 Search the web via a pre-crawled search index (Tier S). Reads results from a
@@ -223,6 +321,17 @@ The typical agent workflow:
 ```
 
 **Important:** Element refs (`e1`, `e2`, ...) are regenerated on every page content response. If you get an `ElementNotFoundError`, the page has changed — call `get_page_content` to get fresh refs.
+
+**For JS-heavy pages** (search results, catalogs, SPAs) where prices/listings render after load, escalate accuracy as needed:
+
+```
+1. navigate(..., wait_for_selector=".a-price", scroll_to_load=true)  → content lands before snapshot
+2. extract(selector=".s-result-item", fields=[...])                  → exact rows, not a text blob
+3. read page_content.structured_data / page_content.meta             → JSON-LD + OG price tags
+4. configure_network_capture(...) before navigate, then              → raw API JSON the page fetched
+   get_network_capture(...)
+5. get_html / get_accessibility_tree                                 → full-fidelity fallback
+```
 
 ---
 

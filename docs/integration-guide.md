@@ -204,7 +204,58 @@ Navigable links:
 
 ### Text Content
 
-The visible text of the page (max ~4000 chars). Useful for reading articles, extracting data, or understanding context.
+The visible text of the page (capped at `WC_MAX_TEXT_CONTENT_CHARS`, default 8000). Useful for reading articles, extracting data, or understanding context.
+
+### Structured Data & Meta
+
+`page_content.structured_data` holds parsed JSON-LD blobs and `page_content.meta` holds OpenGraph/microdata tags — including price fields (`og:price:amount`, `product:price:amount`, `itemprop:price`) and Product/Offer schema. For e-commerce pages this is often the cleanest source of price and rating data, no scraping required.
+
+---
+
+## Accurate Extraction
+
+The curated `PageContent` caps body text and element counts, and prices/listings
+on JS-heavy pages may not be in the DOM when navigate returns. WebControl offers
+a ladder of progressively stronger ways to get exact data — use the lightest one
+that works:
+
+1. **Settle the page.** `navigate(..., wait_for_selector=".a-price", scroll_to_load=true)`
+   waits for async content and fires lazy loaders before the snapshot.
+2. **Read embedded data.** Check `page_content.structured_data` (JSON-LD) and
+   `page_content.meta` (OpenGraph/microdata price tags) first.
+3. **Extract structured rows.** `extract` pulls exact fields from every matching
+   row via CSS selectors — bypasses truncation entirely:
+
+   ```python
+   resp = await client.post(
+       f"/sessions/{session_id}/extract",
+       json={
+           "selector": ".s-result-item",
+           "fields": [
+               {"name": "title", "selector": "h2"},
+               {"name": "price", "selector": ".a-offscreen"},
+               {"name": "rating", "selector": ".a-icon-alt"},
+               {"name": "url", "selector": "a", "attribute": "href"},
+           ],
+       },
+   )
+   rows = resp.json()["rows"]
+   ```
+
+4. **Capture the API.** Enable network capture *before* navigating, then read the
+   raw JSON the page fetched — the source behind the rendered values:
+
+   ```python
+   await client.post(f"/sessions/{session_id}/network-capture",
+                     json={"enabled": True, "url_filter": "/api/", "json_only": True})
+   await client.post(f"/sessions/{session_id}/navigate", json={"url": "https://..."})
+   captured = (await client.get(f"/sessions/{session_id}/network-capture")).json()["responses"]
+   ```
+
+5. **Full-fidelity fallback.** `GET /sessions/{id}/html` (rendered HTML) or
+   `GET /sessions/{id}/accessibility` (ARIA snapshot) when all else misses it.
+
+See [api-reference.md](api-reference.md#accurate-extraction) for full schemas.
 
 ---
 
@@ -253,6 +304,7 @@ The session preserves cookies between steps, so the login persists through the f
 | Element ref not found | Call `get_page_content` to refresh refs |
 | Navigation timeout | Retry with `wait_until: "load"` or increase timeout |
 | Session expired | Create a new session and restart the flow |
-| Page requires JavaScript wait | Use `execute_js` to wait for a condition, then `get_page_content` |
+| Page requires JavaScript wait | Navigate with `wait_for_selector` for the content you need (or `execute_js` to wait, then `get_page_content`) |
+| Data rendered after load is missing | Navigate with `scroll_to_load: true` / `wait_for_selector`; then `extract`, read `structured_data`, or use network capture |
 | Site blocked by anti-bot wall | Use the `search` tool, or retry navigate with `fallback_to_search: true` |
-| Element not visible | May need to scroll — use `execute_js("window.scrollBy(0, 500)")` then retry |
+| Element not visible | May need to scroll — navigate with `scroll_to_load: true`, or `execute_js("window.scrollBy(0, 500)")` then retry |
